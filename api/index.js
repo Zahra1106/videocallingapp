@@ -1,4 +1,8 @@
-﻿import express from "express";
+﻿import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+require("dotenv").config({ path: "E:\\zahra-server\\lib\\.env" });
+
+import express from "express";
 import { connectDB } from "../lib/db.js";
 
 const app = express();
@@ -6,7 +10,7 @@ app.use(express.json());
 
 connectDB().then(() => {
   console.log("MongoDB connected! ✅");
-});
+}).catch(err => console.log("DB Error:", err));
 
 app.get("/", (req, res) => {
   res.json({ message: "Server chal raha hai! ✅" });
