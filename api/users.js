@@ -13,10 +13,9 @@ export default async function handler(req, res) {
 
     const { currentUserID } = req.query;
 
-    // Apne alawa sab users lao
     const users = await User.find(
       { _id: { $ne: currentUserID } },
-      { name: 1, email: 1, image: 1 }  // image bhi include kiya
+      { name: 1, email: 1, image: 1 }
     );
 
     const userList = users.map(u => ({
