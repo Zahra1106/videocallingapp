@@ -1,11 +1,4 @@
 import { connectDB, User } from "../lib/db.js";
-const userSchema = new mongoose.Schema({
-  name:      { type: String, required: true },
-  email:     { type: String, required: true, unique: true },
-  password:  { type: String, required: true },
-  image:     { type: String, default: "" },  // ← yeh add karo
-  createdAt: { type: Date, default: Date.now }
-});
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -23,13 +16,14 @@ export default async function handler(req, res) {
     // Apne alawa sab users lao
     const users = await User.find(
       { _id: { $ne: currentUserID } },
-      { name: 1, email: 1 } // sirf name aur email
+      { name: 1, email: 1, image: 1 }  // image bhi include kiya
     );
 
     const userList = users.map(u => ({
-      uid: u._id,
-      name: u.name,
+      uid  : u._id,
+      name : u.name,
       email: u.email,
+      image: u.image ?? "",
     }));
 
     res.status(200).json({ users: userList });
