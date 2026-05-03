@@ -1,4 +1,5 @@
 ﻿import { connectDB, User } from "../lib/db.js";
+import mongoose from "mongoose";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -13,10 +14,12 @@ export default async function handler(req, res) {
 
     const { currentUserID } = req.query;
 
-    const users = await User.find(
-      { _id: { $ne: currentUserID } },
-      { name: 1, email: 1, image: 1 }
-    );
+    // Valid ObjectId check
+    const query = mongoose.Types.ObjectId.isValid(currentUserID)
+      ? { _id: { $ne: new mongoose.Types.ObjectId(currentUserID) } }
+      : {};
+
+    const users = await User.find(query, { name: 1, email: 1, image: 1 });
 
     const userList = users.map(u => ({
       uid  : u._id.toString(),
