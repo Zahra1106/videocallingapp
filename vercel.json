@@ -1,12 +1,15 @@
 ﻿{
   "version": 2,
-  "rewrites": [
-    { "source": "/api/signup",          "destination": "/api/signup" },
-    { "source": "/api/login",           "destination": "/api/login" },
-    { "source": "/api/forgot-password", "destination": "/api/forgot-password" },
-    { "source": "/api/chat",            "destination": "/api/chat" },
-    { "source": "/api/groups",          "destination": "/api/groups" },
-    { "source": "/api/users",           "destination": "/api/users" },
-    { "source": "/(.*)",                "destination": "/index.js" }
+  "builds": [
+    {
+      "src": "index.js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "index.js"
+    }
   ]
 }
