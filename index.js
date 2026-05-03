@@ -1,8 +1,8 @@
 ﻿import dotenv from "dotenv";
-dotenv.config(); // Local ke liye — Vercel pe automatically ignore hoga
+dotenv.config();
 
 import express from "express";
-import { connectDB } from "../lib/db.js";
+import { connectDB } from "./lib/db.js"; // ../ ki jagah ./ karo
 
 const app = express();
 app.use(express.json());
