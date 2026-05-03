@@ -19,7 +19,7 @@ export default async function handler(req, res) {
     );
 
     const userList = users.map(u => ({
-      uid  : u._id,
+      uid  : u._id.toString(),
       name : u.name,
       email: u.email,
       image: u.image ?? "",
