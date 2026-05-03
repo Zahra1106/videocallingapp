@@ -3,7 +3,6 @@ import jwt from "jsonwebtoken";
 import { connectDB, User, JWT_SECRET } from "../lib/db.js";
 
 export default async function handler(req, res) {
-  // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -36,7 +35,11 @@ export default async function handler(req, res) {
     res.status(201).json({
       message: "Account ban gaya! ✅",
       token,
-      user: { name: newUser.name, email: newUser.email }
+      user: { 
+        _id:   newUser._id.toString(),
+        name:  newUser.name, 
+        email: newUser.email 
+      }
     });
 
   } catch (error) {

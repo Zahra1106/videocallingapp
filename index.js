@@ -2,9 +2,12 @@
 dotenv.config();
 
 import express from "express";
-import { connectDB } from "./lib/db.js"; // ../ ki jagah ./ karo
+import cors from "cors";
+import { connectDB } from "./lib/db.js";
 
 const app = express();
+
+app.use(cors());
 app.use(express.json());
 
 connectDB()

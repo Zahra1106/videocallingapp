@@ -1,11 +1,16 @@
 ﻿{
   "version": 2,
   "builds": [
-    { "src": "index.js", "use": "@vercel/node" },
-    { "src": "api/*.js", "use": "@vercel/node" }
+    { "src": "api/*.js", "use": "@vercel/node" },
+    { "src": "index.js", "use": "@vercel/node" }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "api/$1" },
-    { "src": "/(.*)", "dest": "index.js" }
+    { "src": "/api/signup",          "dest": "api/signup.js" },
+    { "src": "/api/login",           "dest": "api/login.js" },
+    { "src": "/api/forgot-password", "dest": "api/forgot-password.js" },
+    { "src": "/api/chat",            "dest": "api/chat.js" },
+    { "src": "/api/groups",          "dest": "api/groups.js" },
+    { "src": "/api/users",           "dest": "api/users.js" },
+    { "src": "/(.*)",                "dest": "index.js" }
   ]
 }

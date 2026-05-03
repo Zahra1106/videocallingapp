@@ -14,7 +14,6 @@ export default async function handler(req, res) {
 
     const { currentUserID } = req.query;
 
-    // Valid ObjectId check
     const query = mongoose.Types.ObjectId.isValid(currentUserID)
       ? { _id: { $ne: new mongoose.Types.ObjectId(currentUserID) } }
       : {};
@@ -22,8 +21,8 @@ export default async function handler(req, res) {
     const users = await User.find(query, { name: 1, email: 1, image: 1 });
 
     const userList = users.map(u => ({
-      uid  : u._id.toString(),
-      name : u.name,
+      uid:   u._id.toString(),
+      name:  u.name,
       email: u.email,
       image: u.image ?? "",
     }));

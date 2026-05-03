@@ -33,14 +33,14 @@ export default async function handler(req, res) {
     );
 
     res.status(200).json({
-  message: "Login ho gaya! ✅",
-  token,
-  user: { 
-    _id  : user._id.toString(), // ← YEH ADD KARO
-    name : user.name, 
-    email: user.email 
-  }
-});
+      message: "Login ho gaya! ✅",
+      token,
+      user: { 
+        _id:   user._id.toString(),
+        name:  user.name, 
+        email: user.email 
+      }
+    });
 
   } catch (error) {
     res.status(500).json({ message: "Server error", error: error.message });

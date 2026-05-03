@@ -3,10 +3,10 @@ import mongoose from "mongoose";
 
 // Chat Schema
 const chatSchema = new mongoose.Schema({
-  chatID: { type: String, required: true },
-  sender: { type: String, required: true },
+  chatID:  { type: String, required: true },
+  sender:  { type: String, required: true },
   message: { type: String, required: true },
-  time: { type: Number, default: () => Date.now() },
+  time:    { type: Number, default: () => Date.now() },
 });
 
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
@@ -29,7 +29,6 @@ export default async function handler(req, res) {
         return res.status(400).json({ message: "Sab fields bharo" });
       }
 
-      // ChatID banao (sorted)
       const ids = [myID, targetID].sort();
       const chatID = ids.join("_");
 

@@ -12,7 +12,6 @@ const groupSchema = new mongoose.Schema({
 const Group = mongoose.models.Group || mongoose.model("Group", groupSchema);
 
 export default async function handler(req, res) {
-
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
@@ -21,7 +20,7 @@ export default async function handler(req, res) {
 
   await connectDB();
 
-  // ✅ GROUP BANAO
+  // GROUP BANAO
   if (req.method === "POST") {
     try {
       const { name, createdBy, members } = req.body;
@@ -33,10 +32,10 @@ export default async function handler(req, res) {
       const group = await Group.create({ name, createdBy, members });
 
       return res.status(201).json({
-        message: "Group ban gaya",
+        message: "Group ban gaya ✅",
         group: {
-          id: group._id,
-          name: group.name,
+          id:      group._id,
+          name:    group.name,
           members: group.members,
         }
       });
@@ -46,7 +45,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ✅ GROUPS LAO — kisi user ke saare groups
+  // GROUPS LAO
   if (req.method === "GET") {
     try {
       const { userID } = req.query;
@@ -58,9 +57,9 @@ export default async function handler(req, res) {
       const groups = await Group.find({ members: userID });
 
       const groupList = groups.map(g => ({
-        id: g._id,
-        name: g.name,
-        members: g.members,
+        id:        g._id,
+        name:      g.name,
+        members:   g.members,
         createdBy: g.createdBy,
       }));
 
