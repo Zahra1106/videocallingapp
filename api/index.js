@@ -1,4 +1,7 @@
-﻿import express from "express";
+﻿import dotenv from "dotenv";
+dotenv.config(); // Local ke liye — Vercel pe automatically ignore hoga
+
+import express from "express";
 import { connectDB } from "../lib/db.js";
 
 const app = express();
@@ -12,5 +15,4 @@ app.get("/", (req, res) => {
   res.json({ message: "Server chal raha hai! ✅" });
 });
 
-// Sirf yeh line — app.listen NAHI
 export default app;
