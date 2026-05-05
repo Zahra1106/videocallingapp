@@ -12,6 +12,7 @@ import forgotHandler      from "./api/forgot-password.js";
 import chatHandler        from "./api/chat.js";
 import groupsHandler      from "./api/groups.js";
 import usersHandler       from "./api/users.js";
+import calllogsHandler      from "./api/calllogs.js";
 
 const app = express();
 
@@ -30,6 +31,7 @@ app.all("/api/forgot-password", forgotHandler);
 app.all("/api/chat",            chatHandler);
 app.all("/api/groups",          groupsHandler);
 app.all("/api/users",           usersHandler);
+app.all("/api/calllogs",           calllogsHandler);
 
 // Test route
 app.get("/", (req, res) => {
