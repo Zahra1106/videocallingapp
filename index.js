@@ -13,6 +13,8 @@ import chatHandler        from "./api/chat.js";
 import groupsHandler      from "./api/groups.js";
 import usersHandler       from "./api/users.js";
 import calllogsHandler      from "./api/calllogs.js";
+import scheduleHandler   from "./api/schedule.js";
+import favouritesHandler from "./api/favourites.js";
 
 const app = express();
 
@@ -38,6 +40,13 @@ app.all("/api/groups", groupsHandler);
 app.all("/api/groups/create",   groupsHandler);
 app.all("/api/groups/message",  groupsHandler);
 app.all("/api/groups/messages", groupsHandler);
+// Existing routes ke neeche add karo
+app.all("/api/schedule",         scheduleHandler);
+app.all("/api/schedule/create",  scheduleHandler);
+app.all("/api/schedule/delete",  scheduleHandler);
+app.all("/api/favourites",       favouritesHandler);
+app.all("/api/favourites/add",   favouritesHandler);
+app.all("/api/favourites/remove", favouritesHandler);
 
 // Test route
 app.get("/", (req, res) => {
