@@ -1,74 +1,113 @@
-import { connectDB } from "../lib/db.js";
-import mongoose from "mongoose";
+// api/groups.js
+import { Group } from "../lib/db.js";
 
-// GROUP SCHEMA
-const groupSchema = new mongoose.Schema({
-  name:      { type: String, required: true },
-  createdBy: { type: String, required: true },
-  members:   [{ type: String }],
-  createdAt: { type: Date, default: Date.now }
-});
+export default async function groupsHandler(req, res) {
 
-const Group = mongoose.models.Group || mongoose.model("Group", groupSchema);
+  // ── GET /api/groups?userID=xxx ─────────────────────────────
+  if (req.method === "GET" && !req.url.includes("/messages")) {
+    const { userID } = req.query;
 
-export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-
-  if (req.method === "OPTIONS") return res.status(200).end();
-
-  await connectDB();
-
-  // GROUP BANAO
-  if (req.method === "POST") {
-    try {
-      const { name, createdBy, members } = req.body;
-
-      if (!name || !createdBy || !members || members.length < 2) {
-        return res.status(400).json({ message: "Name, createdBy aur kam az kam 2 members chahiye" });
-      }
-
-      const group = await Group.create({ name, createdBy, members });
-
-      return res.status(201).json({
-        message: "Group ban gaya ✅",
-        group: {
-          id:      group._id,
-          name:    group.name,
-          members: group.members,
-        }
-      });
-
-    } catch (error) {
-      return res.status(500).json({ message: "Server error", error: error.message });
+    if (!userID) {
+      return res.status(400).json({ message: "userID chahiye" });
     }
-  }
 
-  // GROUPS LAO
-  if (req.method === "GET") {
     try {
-      const { userID } = req.query;
+      const groups = await Group.find({ members: userID })
+        .sort({ lastMessageTime: -1 });
 
-      if (!userID) {
-        return res.status(400).json({ message: "userID chahiye" });
-      }
-
-      const groups = await Group.find({ members: userID });
-
-      const groupList = groups.map(g => ({
-        id:        g._id,
-        name:      g.name,
-        members:   g.members,
-        createdBy: g.createdBy,
+      // _id ko groupID mein convert karo
+      const result = groups.map(g => ({
+        groupID:         g._id.toString(),
+        name:            g.name,
+        members:         g.members,
+        lastMessage:     g.lastMessage ?? "",
+        lastMessageTime: g.lastMessageTime,
+        createdBy:       g.createdBy,
       }));
 
-      return res.status(200).json({ groups: groupList });
-
-    } catch (error) {
-      return res.status(500).json({ message: "Server error", error: error.message });
+      return res.json({ groups: result });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
-  return res.status(405).json({ message: "Method not allowed" });
+  // ── POST /api/groups/create ────────────────────────────────
+  if (req.method === "POST" && req.url.includes("/create")) {
+    const { name, creatorID, creatorName, members } = req.body;
+
+    if (!name || !creatorID || !members?.length) {
+      return res.status(400).json({ message: "Sab fields bharo" });
+    }
+
+    try {
+      const group = await Group.create({
+        name,
+        createdBy:       creatorID,
+        creatorName,
+        members,
+        lastMessage:     "",
+        lastMessageTime: new Date(),
+      });
+
+      return res.status(201).json({
+        message: "Group ban gaya",
+        groupID: group._id.toString(),
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── POST /api/groups/message ───────────────────────────────
+  if (req.method === "POST" && req.url.includes("/message")) {
+    const { groupID, senderID, senderName, text } = req.body;
+
+    if (!groupID || !senderID || !text) {
+      return res.status(400).json({ message: "groupID, senderID aur text chahiye" });
+    }
+
+    try {
+      await Group.findByIdAndUpdate(groupID, {
+        $push: {
+          messages: {
+            senderID,
+            senderName,
+            text,
+            timestamp: new Date(),
+          },
+        },
+        $set: {
+          lastMessage:     text,
+          lastMessageTime: new Date(),
+        },
+      });
+
+      return res.json({ message: "Message chala gaya" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── GET /api/groups/messages?groupID=xxx ──────────────────
+  if (req.method === "GET" && req.url.includes("/messages")) {
+    const { groupID } = req.query;
+
+    if (!groupID) {
+      return res.status(400).json({ message: "groupID chahiye" });
+    }
+
+    try {
+      const group = await Group.findById(groupID);
+
+      if (!group) {
+        return res.status(404).json({ message: "Group nahi mila" });
+      }
+
+      return res.json({ messages: group.messages ?? [] });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  return res.status(404).json({ message: "Route nahi mila" });
 }

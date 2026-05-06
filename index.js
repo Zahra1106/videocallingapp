@@ -29,9 +29,15 @@ app.all("/api/signup",          signupHandler);
 app.all("/api/login",           loginHandler);
 app.all("/api/forgot-password", forgotHandler);
 app.all("/api/chat",            chatHandler);
-app.all("/api/groups",          groupsHandler);
 app.all("/api/users",           usersHandler);
 app.all("/api/calllogs",           calllogsHandler);
+// Purane routes
+app.all("/api/groups", groupsHandler);
+
+// Yeh add karo
+app.all("/api/groups/create",   groupsHandler);
+app.all("/api/groups/message",  groupsHandler);
+app.all("/api/groups/messages", groupsHandler);
 
 // Test route
 app.get("/", (req, res) => {
