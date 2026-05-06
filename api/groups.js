@@ -3,8 +3,12 @@ import { Group } from "../lib/db.js";
 
 export default async function groupsHandler(req, res) {
 
-  // ── GET /api/groups?userID=xxx ─────────────────────────────
-  if (req.method === "GET" && !req.url.includes("/messages")) {
+  const url = req.url.split("?")[0]; // query string hata do
+
+  console.log("Method:", req.method, "| URL:", url); // debug ke liye
+
+  // ── GET /api/groups ────────────────────────────────────────
+  if (req.method === "GET" && url === "/api/groups") {
     const { userID } = req.query;
 
     if (!userID) {
@@ -15,7 +19,6 @@ export default async function groupsHandler(req, res) {
       const groups = await Group.find({ members: userID })
         .sort({ lastMessageTime: -1 });
 
-      // _id ko groupID mein convert karo
       const result = groups.map(g => ({
         groupID:         g._id.toString(),
         name:            g.name,
@@ -32,7 +35,7 @@ export default async function groupsHandler(req, res) {
   }
 
   // ── POST /api/groups/create ────────────────────────────────
-  if (req.method === "POST" && req.url.includes("/create")) {
+  if (req.method === "POST" && url === "/api/groups/create") {
     const { name, creatorID, creatorName, members } = req.body;
 
     if (!name || !creatorID || !members?.length) {
@@ -59,7 +62,7 @@ export default async function groupsHandler(req, res) {
   }
 
   // ── POST /api/groups/message ───────────────────────────────
-  if (req.method === "POST" && req.url.includes("/message")) {
+  if (req.method === "POST" && url === "/api/groups/message") {
     const { groupID, senderID, senderName, text } = req.body;
 
     if (!groupID || !senderID || !text) {
@@ -88,8 +91,8 @@ export default async function groupsHandler(req, res) {
     }
   }
 
-  // ── GET /api/groups/messages?groupID=xxx ──────────────────
-  if (req.method === "GET" && req.url.includes("/messages")) {
+  // ── GET /api/groups/messages ───────────────────────────────
+  if (req.method === "GET" && url === "/api/groups/messages") {
     const { groupID } = req.query;
 
     if (!groupID) {
