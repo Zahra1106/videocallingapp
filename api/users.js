@@ -4,32 +4,54 @@ import mongoose from "mongoose";
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
 
   if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "GET") return res.status(405).json({ message: "Method not allowed" });
 
-  try {
-    await connectDB();
+  await connectDB();
 
-    const { currentUserID } = req.query;
+  // ── GET — sab users lao
+  if (req.method === "GET") {
+    try {
+      const { currentUserID } = req.query;
 
-    const query = mongoose.Types.ObjectId.isValid(currentUserID)
-      ? { _id: { $ne: new mongoose.Types.ObjectId(currentUserID) } }
-      : {};
+      const query = mongoose.Types.ObjectId.isValid(currentUserID)
+        ? { _id: { $ne: new mongoose.Types.ObjectId(currentUserID) } }
+        : {};
 
-    const users = await User.find(query, { name: 1, email: 1, image: 1 });
+      const users = await User.find(query, { name: 1, email: 1, image: 1, isOnline: 1, lastSeen: 1 });
 
-    const userList = users.map(u => ({
-      uid:   u._id.toString(),
-      name:  u.name,
-      email: u.email,
-      image: u.image ?? "",
-    }));
+      const userList = users.map(u => ({
+        uid:      u._id.toString(),
+        name:     u.name,
+        email:    u.email,
+        image:    u.image ?? "",
+        isOnline: u.isOnline ?? false,
+        lastSeen: u.lastSeen ?? null,
+      }));
 
-    res.status(200).json({ users: userList });
-
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+      return res.status(200).json({ users: userList });
+    } catch (error) {
+      return res.status(500).json({ message: "Server error", error: error.message });
+    }
   }
+
+  // ── POST — online/offline update karo
+  if (req.method === "POST") {
+    try {
+      const { userID, isOnline } = req.body;
+      if (!userID) return res.status(400).json({ message: "userID chahiye" });
+
+      await User.findByIdAndUpdate(userID, {
+        isOnline: isOnline,
+        lastSeen: isOnline ? null : new Date(),
+      });
+
+      return res.status(200).json({ message: "Status update ho gaya" });
+    } catch (error) {
+      return res.status(500).json({ message: "Server error", error: error.message });
+    }
+  }
+
+  return res.status(405).json({ message: "Method not allowed" });
 }
