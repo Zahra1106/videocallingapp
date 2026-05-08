@@ -10,7 +10,7 @@ export default async function handler(req, res) {
 
   await connectDB();
 
-  // ── GET — sab users lao
+  // ── GET
   if (req.method === "GET") {
     try {
       const { currentUserID } = req.query;
@@ -19,7 +19,9 @@ export default async function handler(req, res) {
         ? { _id: { $ne: new mongoose.Types.ObjectId(currentUserID) } }
         : {};
 
-      const users = await User.find(query, { name: 1, email: 1, image: 1, isOnline: 1, lastSeen: 1 });
+      const users = await User.find(query, {
+        name: 1, email: 1, image: 1, isOnline: 1, lastSeen: 1
+      });
 
       const userList = users.map(u => ({
         uid:      u._id.toString(),
@@ -36,17 +38,17 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── POST — online/offline update karo
+  // ── POST — ✅ sirf ek POST block
   if (req.method === "POST") {
     try {
-      const { userID, isOnline } = req.body;
+      const { userID, isOnline, fcmToken } = req.body;
       if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
-      await User.findByIdAndUpdate(userID, {
-        isOnline: isOnline,
-        lastSeen: isOnline ? null : new Date(),
-      });
+      const update = { isOnline };
+      if (fcmToken) update.fcmToken = fcmToken;
+      if (!isOnline) update.lastSeen = new Date();
 
+      await User.findByIdAndUpdate(userID, update);
       return res.status(200).json({ message: "Status update ho gaya" });
     } catch (error) {
       return res.status(500).json({ message: "Server error", error: error.message });
