@@ -5,7 +5,8 @@ const chatSchema = new mongoose.Schema({
   chatID:    { type: String, required: true },
   sender:    { type: String, required: true },
   message:   { type: String, default: "" },
-  voiceUrl:  { type: String, default: "" }, // ✅ voice
+  voiceUrl:  { type: String, default: "" },
+  imageUrl:  { type: String, default: "" },
   time:      { type: Number, default: () => Date.now() },
   isRead:    { type: Boolean, default: false },
   reactions: { type: Map, of: String, default: {} },
@@ -25,25 +26,25 @@ export default async function handler(req, res) {
   // MESSAGE BHEJO
   if (req.method === "POST") {
     try {
-      const { myID, targetID, message, voiceUrl } = req.body;
+      const { myID, targetID, message, voiceUrl, imageUrl } = req.body;
 
       if (!myID || !targetID)
         return res.status(400).json({ message: "myID aur targetID chahiye" });
 
-      // Text ya voice — koi ek hona chahiye
-      if (!message?.trim() && !voiceUrl?.trim())
-        return res.status(400).json({ message: "Message ya voice chahiye" });
+      if (!message?.trim() && !voiceUrl?.trim() && !imageUrl?.trim())
+        return res.status(400).json({ message: "Message, voice ya image chahiye" });
 
       const ids = [myID, targetID].sort();
       const chatID = ids.join("_");
 
       const newMsg = new Chat({
         chatID,
-        sender:   myID,
-        message:  message  ?? "",
-        voiceUrl: voiceUrl ?? "",
-        time:     Date.now(),
-        isRead:   false,
+        sender:    myID,
+        message:   message  ?? "",
+        voiceUrl:  voiceUrl ?? "",
+        imageUrl:  imageUrl ?? "",
+        time:      Date.now(),
+        isRead:    false,
         reactions: {},
       });
       await newMsg.save();
@@ -65,7 +66,6 @@ export default async function handler(req, res) {
       const ids = [myID, targetID].sort();
       const chatID = ids.join("_");
 
-      // Dusre ki messages read mark karo
       await Chat.updateMany(
         { chatID, sender: targetID, isRead: false },
         { $set: { isRead: true } }
@@ -98,7 +98,6 @@ export default async function handler(req, res) {
 
       const reactions = msg.reactions || new Map();
 
-      // Same emoji dobara tap karo to remove
       if (reactions.get(userID) === emoji) {
         reactions.delete(userID);
       } else {
