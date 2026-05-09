@@ -1,7 +1,3 @@
-import { connectDB, User } from "../lib/db.js";
-const cloudData = await cloudRes.json();
-console.log("CLOUDINARY:", JSON.stringify(cloudData)); // ✅ add
-
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -11,36 +7,38 @@ export default async function handler(req, res) {
   if (req.method !== "POST")
     return res.status(405).json({ message: "Method not allowed" });
 
-  await connectDB();
-
   const { userID, imageBase64 } = req.body;
 
   if (!imageBase64)
     return res.status(400).json({ message: "image chahiye" });
 
   try {
+    // ✅ FormData use karo JSON ki jagah
+    const formData = new URLSearchParams();
+    formData.append("file", imageBase64);
+    formData.append("upload_preset", process.env.CLOUDINARY_UPLOAD_PRESET);
+
     const cloudRes = await fetch(
       `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          file:          imageBase64,
-          upload_preset: process.env.CLOUDINARY_UPLOAD_PRESET,
-        }),
+        body: formData,
       }
     );
 
     const cloudData = await cloudRes.json();
+    console.log("Cloudinary:", JSON.stringify(cloudData));
 
     if (!cloudData.secure_url)
       return res.status(500).json({
-        message: "Image upload failed",
-        detail:  cloudData
+        message: "Cloudinary upload failed",
+        detail:  cloudData.error?.message ?? "unknown"
       });
 
-    // ✅ Sirf tab DB update karo jab real userID ho
-    if (userID && userID !== "voice" && userID.length === 24) {
+    // DB update sirf real userID pe
+    if (userID && userID.length === 24) {
+      const { connectDB, User } = await import("../lib/db.js");
+      await connectDB();
       await User.findByIdAndUpdate(userID, { image: cloudData.secure_url });
     }
 
@@ -50,6 +48,7 @@ export default async function handler(req, res) {
     });
 
   } catch (e) {
+    console.error("Upload error:", e);
     return res.status(500).json({ message: "Server error", error: e.message });
   }
 }
