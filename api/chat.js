@@ -17,7 +17,7 @@ const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
 
   if (req.method === "OPTIONS") return res.status(200).end();
 
@@ -115,6 +115,29 @@ export default async function handler(req, res) {
       res.status(500).json({ message: "Server error", error: error.message });
     }
   }
+  // MESSAGE DELETE
+else if (req.method === "DELETE") {
+  try {
+    const { messageID, userID } = req.body;
+
+    if (!messageID || !userID)
+      return res.status(400).json({ message: "messageID aur userID chahiye" });
+
+    const msg = await Chat.findById(messageID);
+    if (!msg)
+      return res.status(404).json({ message: "Message nahi mila" });
+
+    // Sirf apna message delete kar sako
+    if (msg.sender !== userID)
+      return res.status(403).json({ message: "Sirf apna message delete kar sakte ho" });
+
+    await Chat.findByIdAndDelete(messageID);
+
+    return res.status(200).json({ message: "Message delete ho gaya ✅" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error", error: error.message });
+  }
+}
 
   else {
     res.status(405).json({ message: "Method not allowed" });
