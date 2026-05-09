@@ -4,10 +4,11 @@ import mongoose from "mongoose";
 const chatSchema = new mongoose.Schema({
   chatID:    { type: String, required: true },
   sender:    { type: String, required: true },
-  message:   { type: String, required: true },
+  message:   { type: String, default: "" },
+  voiceUrl:  { type: String, default: "" }, // ✅ voice
   time:      { type: Number, default: () => Date.now() },
   isRead:    { type: Boolean, default: false },
-  reactions: { type: Map, of: String, default: {} }, // ✅ userID: emoji
+  reactions: { type: Map, of: String, default: {} },
 });
 
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
@@ -24,16 +25,26 @@ export default async function handler(req, res) {
   // MESSAGE BHEJO
   if (req.method === "POST") {
     try {
-      const { myID, targetID, message } = req.body;
-      if (!myID || !targetID || !message?.trim())
-        return res.status(400).json({ message: "Sab fields bharo" });
+      const { myID, targetID, message, voiceUrl } = req.body;
+
+      if (!myID || !targetID)
+        return res.status(400).json({ message: "myID aur targetID chahiye" });
+
+      // Text ya voice — koi ek hona chahiye
+      if (!message?.trim() && !voiceUrl?.trim())
+        return res.status(400).json({ message: "Message ya voice chahiye" });
 
       const ids = [myID, targetID].sort();
       const chatID = ids.join("_");
 
       const newMsg = new Chat({
-        chatID, sender: myID, message,
-        time: Date.now(), isRead: false, reactions: {}
+        chatID,
+        sender:   myID,
+        message:  message  ?? "",
+        voiceUrl: voiceUrl ?? "",
+        time:     Date.now(),
+        isRead:   false,
+        reactions: {},
       });
       await newMsg.save();
 
@@ -47,9 +58,14 @@ export default async function handler(req, res) {
   else if (req.method === "GET") {
     try {
       const { myID, targetID } = req.query;
+
+      if (!myID || !targetID)
+        return res.status(400).json({ message: "myID aur targetID chahiye" });
+
       const ids = [myID, targetID].sort();
       const chatID = ids.join("_");
 
+      // Dusre ki messages read mark karo
       await Chat.updateMany(
         { chatID, sender: targetID, isRead: false },
         { $set: { isRead: true } }
@@ -57,10 +73,9 @@ export default async function handler(req, res) {
 
       const messages = await Chat.find({ chatID }).sort({ time: 1 });
 
-      // reactions Map ko object mein convert karo
       const result = messages.map(m => ({
         ...m.toObject(),
-        reactions: m.reactions ? Object.fromEntries(m.reactions) : {}
+        reactions: m.reactions ? Object.fromEntries(m.reactions) : {},
       }));
 
       res.status(200).json({ messages: result });
@@ -73,11 +88,13 @@ export default async function handler(req, res) {
   else if (req.method === "PATCH") {
     try {
       const { messageID, userID, emoji } = req.body;
+
       if (!messageID || !userID)
         return res.status(400).json({ message: "messageID aur userID chahiye" });
 
       const msg = await Chat.findById(messageID);
-      if (!msg) return res.status(404).json({ message: "Message nahi mila" });
+      if (!msg)
+        return res.status(404).json({ message: "Message nahi mila" });
 
       const reactions = msg.reactions || new Map();
 
@@ -92,8 +109,8 @@ export default async function handler(req, res) {
       await msg.save();
 
       res.status(200).json({
-        message: "Reaction update ho gaya",
-        reactions: Object.fromEntries(reactions)
+        message:   "Reaction update ho gaya",
+        reactions: Object.fromEntries(reactions),
       });
     } catch (error) {
       res.status(500).json({ message: "Server error", error: error.message });
