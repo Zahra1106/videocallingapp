@@ -16,16 +16,15 @@ export default async function handler(req, res) {
     const isAudio = imageBase64.startsWith("data:audio");
     const resourceType = isAudio ? "video" : "image";
 
-    // ✅ Direct JSON upload — sab se reliable tarika
     const cloudRes = await fetch(
-      `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/${resourceType}/upload`,
+      `https://api.cloudinary.com/v1_1/dyacw4bca/${resourceType}/upload`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-        file:           imageBase64,
-        upload_preset:  process.env.CLOUDINARY_UPLOAD_PRESET,
-}),
+          file:          imageBase64,
+          upload_preset: "zunocalling",
+        }),
       }
     );
 
@@ -38,7 +37,6 @@ export default async function handler(req, res) {
         detail:  cloudData.error?.message ?? "unknown",
       });
 
-    // ✅ DB update sirf real userID pe
     if (userID && userID !== "voice" && userID.length === 24) {
       const { connectDB } = await import("../lib/db.js");
       const mongoose = (await import("mongoose")).default;
