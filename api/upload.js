@@ -23,9 +23,10 @@ export default async function handler(req, res) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          file:           imageBase64,
-          upload_preset:  process.env.CLOUDINARY_UPLOAD_PRESET,
-        }),
+        file:           imageBase64,
+        upload_preset:  process.env.CLOUDINARY_UPLOAD_PRESET,
+        public_id:      `upload_${Date.now()}`,  // ✅ yeh add karo
+}),
       }
     );
 
