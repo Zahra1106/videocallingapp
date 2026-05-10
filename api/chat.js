@@ -55,30 +55,41 @@ export default async function handler(req, res) {
     }
   }
 
-  // MESSAGES LAO
+  // MESSAGES LAO + UNREAD COUNT
   else if (req.method === "GET") {
     try {
-      const { myID, targetID } = req.query;
+      const { myID, targetID, unreadCount, chatID } = req.query;
 
+      // ✅ Unread count
+      if (unreadCount === "true" && chatID) {
+        const count = await Chat.countDocuments({
+          chatID,
+          sender: { $ne: myID },
+          isRead: false,
+        });
+        return res.status(200).json({ count });
+      }
+
+      // Normal messages
       if (!myID || !targetID)
         return res.status(400).json({ message: "myID aur targetID chahiye" });
 
       const ids = [myID, targetID].sort();
-      const chatID = ids.join("_");
+      const cID = ids.join("_");
 
       await Chat.updateMany(
-        { chatID, sender: targetID, isRead: false },
+        { chatID: cID, sender: targetID, isRead: false },
         { $set: { isRead: true } }
       );
 
-      const messages = await Chat.find({ chatID }).sort({ time: 1 });
+      const messages = await Chat.find({ chatID: cID }).sort({ time: 1 });
 
       const result = messages.map(m => ({
         ...m.toObject(),
         reactions: m.reactions ? Object.fromEntries(m.reactions) : {},
       }));
 
-      res.status(200).json({ messages: result });
+      return res.status(200).json({ messages: result });
     } catch (error) {
       res.status(500).json({ message: "Server error", error: error.message });
     }
@@ -115,29 +126,29 @@ export default async function handler(req, res) {
       res.status(500).json({ message: "Server error", error: error.message });
     }
   }
+
   // MESSAGE DELETE
-else if (req.method === "DELETE") {
-  try {
-    const { messageID, userID } = req.body;
+  else if (req.method === "DELETE") {
+    try {
+      const { messageID, userID } = req.body;
 
-    if (!messageID || !userID)
-      return res.status(400).json({ message: "messageID aur userID chahiye" });
+      if (!messageID || !userID)
+        return res.status(400).json({ message: "messageID aur userID chahiye" });
 
-    const msg = await Chat.findById(messageID);
-    if (!msg)
-      return res.status(404).json({ message: "Message nahi mila" });
+      const msg = await Chat.findById(messageID);
+      if (!msg)
+        return res.status(404).json({ message: "Message nahi mila" });
 
-    // Sirf apna message delete kar sako
-    if (msg.sender !== userID)
-      return res.status(403).json({ message: "Sirf apna message delete kar sakte ho" });
+      if (msg.sender !== userID)
+        return res.status(403).json({ message: "Sirf apna message delete kar sakte ho" });
 
-    await Chat.findByIdAndDelete(messageID);
+      await Chat.findByIdAndDelete(messageID);
 
-    return res.status(200).json({ message: "Message delete ho gaya ✅" });
-  } catch (error) {
-    res.status(500).json({ message: "Server error", error: error.message });
+      return res.status(200).json({ message: "Message delete ho gaya ✅" });
+    } catch (error) {
+      res.status(500).json({ message: "Server error", error: error.message });
+    }
   }
-}
 
   else {
     res.status(405).json({ message: "Method not allowed" });
