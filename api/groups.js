@@ -149,6 +149,7 @@ export default async function handler(req, res) {
         });
         return res.json({ message: "Group leave ho gaya ✅" });
       }
+      
 
       // Add member
       if (action === "addMember" && targetUserID) {
@@ -167,6 +168,13 @@ export default async function handler(req, res) {
         });
         return res.json({ message: "Member remove ho gaya ✅" });
       }
+      // Privacy toggle
+      if (action === "privacy") {
+        await Group.findByIdAndUpdate(groupID, {
+         onlyAdminCanMessage: req.body.onlyAdminCanMessage
+  });
+        return res.json({ message: "Privacy update ho gayi ✅" });
+}
 
       // Update name
       if (name) {
