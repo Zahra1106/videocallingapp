@@ -80,7 +80,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // POST /api/groups/poll — poll banao
+  // POST /api/groups/poll
   if (req.method === "POST" && url.includes("/poll")) {
     const { groupID, senderID, senderName, question, options } = req.body;
     if (!groupID || !question || !options?.length)
@@ -106,8 +106,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ✅ PATCH /api/groups/vote — vote karo
-  // Vercel pe PATCH problem hoti hai isliye POST bhi accept karo
+  // PATCH/POST /api/groups/vote
   if ((req.method === "PATCH" || req.method === "POST") && url.includes("/vote")) {
     const { groupID, messageID, optionIndex, userID } = req.body;
     if (!groupID || !messageID || optionIndex === undefined || !userID)
@@ -120,16 +119,88 @@ export default async function handler(req, res) {
       const msg = group.messages.id(messageID);
       if (!msg || !msg.isPoll) return res.status(404).json({ message: "Poll nahi mila" });
 
-      // Pehle sab options se vote hatao
       msg.poll.options.forEach(opt => {
         opt.votes = opt.votes.filter(v => v !== userID);
       });
 
-      // Naye option mein vote add karo
       msg.poll.options[optionIndex].votes.push(userID);
       await group.save();
 
       return res.json({ message: "Vote ho gaya ✅", poll: msg.poll });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ✅ PATCH /api/groups/update — name update, leave, add member
+  if (req.method === "PATCH" && url.includes("/update")) {
+    const { groupID, userID, name, action, targetUserID } = req.body;
+    if (!groupID || !userID)
+      return res.status(400).json({ message: "groupID aur userID chahiye" });
+
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+
+      // Leave group
+      if (action === "leave") {
+        await Group.findByIdAndUpdate(groupID, {
+          $pull: { members: userID }
+        });
+        return res.json({ message: "Group leave ho gaya ✅" });
+      }
+
+      // Add member
+      if (action === "addMember" && targetUserID) {
+        if (group.members.includes(targetUserID))
+          return res.status(400).json({ message: "Yeh member pehle se hai" });
+        await Group.findByIdAndUpdate(groupID, {
+          $push: { members: targetUserID }
+        });
+        return res.json({ message: "Member add ho gaya ✅" });
+      }
+
+      // Remove member
+      if (action === "removeMember" && targetUserID) {
+        await Group.findByIdAndUpdate(groupID, {
+          $pull: { members: targetUserID }
+        });
+        return res.json({ message: "Member remove ho gaya ✅" });
+      }
+
+      // Update name
+      if (name) {
+        await Group.findByIdAndUpdate(groupID, { name });
+        return res.json({ message: "Group name update ho gaya ✅" });
+      }
+
+      return res.status(400).json({ message: "Action ya name chahiye" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ✅ DELETE /api/groups/message — message delete
+  if (req.method === "DELETE" && url.includes("/message")) {
+    const { groupID, messageID, userID } = req.body;
+    if (!groupID || !messageID || !userID)
+      return res.status(400).json({ message: "Fields missing" });
+
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+
+      const msg = group.messages.id(messageID);
+      if (!msg) return res.status(404).json({ message: "Message nahi mila" });
+
+      // Sirf apna message ya creator delete kar sakta hai
+      if (msg.senderID !== userID && group.createdBy !== userID)
+        return res.status(403).json({ message: "Permission nahi hai" });
+
+      msg.deleteOne();
+      await group.save();
+
+      return res.json({ message: "Message delete ho gaya ✅" });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
