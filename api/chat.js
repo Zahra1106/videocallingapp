@@ -14,6 +14,8 @@ const chatSchema = new mongoose.Schema({
 
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
 
+const typingUsers = {};
+
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -22,6 +24,34 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   await connectDB();
+
+  const url = req.url.split("?")[0];
+
+  // ── TYPING ──────────────────────────────────────────────
+  if (url.includes("/typing")) {
+    if (req.method === "POST") {
+      const { chatID, userID, isTyping } = req.body;
+      if (!chatID || !userID)
+        return res.status(400).json({ message: "chatID aur userID chahiye" });
+
+      if (isTyping) {
+        typingUsers[chatID] = userID;
+        setTimeout(() => {
+          if (typingUsers[chatID] === userID) delete typingUsers[chatID];
+        }, 5000);
+      } else {
+        delete typingUsers[chatID];
+      }
+      return res.json({ message: "ok" });
+    }
+
+    if (req.method === "GET") {
+      const { chatID, myID } = req.query;
+      if (!chatID) return res.status(400).json({ message: "chatID chahiye" });
+      const typingUserID = typingUsers[chatID];
+      return res.json({ isTyping: !!(typingUserID && typingUserID !== myID) });
+    }
+  }
 
   // MESSAGE BHEJO
   if (req.method === "POST") {
@@ -60,7 +90,6 @@ export default async function handler(req, res) {
     try {
       const { myID, targetID, unreadCount, chatID } = req.query;
 
-      // ✅ Unread count
       if (unreadCount === "true" && chatID) {
         const count = await Chat.countDocuments({
           chatID,
@@ -70,7 +99,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ count });
       }
 
-      // Normal messages
       if (!myID || !targetID)
         return res.status(400).json({ message: "myID aur targetID chahiye" });
 
@@ -95,7 +123,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // REACTION ADD/REMOVE
+  // REACTION
   else if (req.method === "PATCH") {
     try {
       const { messageID, userID, emoji } = req.body;
@@ -127,7 +155,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // MESSAGE DELETE
+  // DELETE
   else if (req.method === "DELETE") {
     try {
       const { messageID, userID } = req.body;

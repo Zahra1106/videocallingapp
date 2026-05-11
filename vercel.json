@@ -2,6 +2,8 @@
   "rewrites": [
     { "source": "/api/groups/create",   "destination": "/api/groups" },
     { "source": "/api/groups/message",  "destination": "/api/groups" },
-    { "source": "/api/groups/messages", "destination": "/api/groups" }
+    { "source": "/api/groups/messages", "destination": "/api/groups" },
+    { "source": "/api/typing",          "destination": "/api/chat" },
+    { "source": "/api/upload",          "destination": "/api/profile" }
   ]
 }
