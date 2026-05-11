@@ -6,8 +6,8 @@ export default async function handler(req, res) {
   const url = req.url.split("?")[0];
 
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
 
   // GET /api/groups
@@ -80,7 +80,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ✅ POST /api/groups/poll — poll banao
+  // POST /api/groups/poll — poll banao
   if (req.method === "POST" && url.includes("/poll")) {
     const { groupID, senderID, senderName, question, options } = req.body;
     if (!groupID || !question || !options?.length)
@@ -107,7 +107,8 @@ export default async function handler(req, res) {
   }
 
   // ✅ PATCH /api/groups/vote — vote karo
-  if (req.method === "PATCH" && url.includes("/vote")) {
+  // Vercel pe PATCH problem hoti hai isliye POST bhi accept karo
+  if ((req.method === "PATCH" || req.method === "POST") && url.includes("/vote")) {
     const { groupID, messageID, optionIndex, userID } = req.body;
     if (!groupID || !messageID || optionIndex === undefined || !userID)
       return res.status(400).json({ message: "Fields missing" });
