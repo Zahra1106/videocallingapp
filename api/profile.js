@@ -21,30 +21,38 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "image chahiye" });
 
     try {
-      const formData = new URLSearchParams();
-      formData.append("file", imageBase64);
-      formData.append("upload_preset", process.env.CLOUDINARY_UPLOAD_PRESET);
+      let imageUrl = imageBase64;
 
-      const cloudRes = await fetch(
-        `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`,
-        { method: "POST", body: formData }
-      );
+      // Agar base64 hai toh Cloudinary pe upload karo
+      // Agar already URL hai (http) toh seedha save karo
+      if (!imageBase64.startsWith("http")) {
+        const formData = new URLSearchParams();
+        formData.append("file", imageBase64);
+        formData.append("upload_preset", process.env.CLOUDINARY_UPLOAD_PRESET);
 
-      const cloudData = await cloudRes.json();
+        const cloudRes = await fetch(
+          `https://api.cloudinary.com/v1_1/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload`,
+          { method: "POST", body: formData }
+        );
 
-      if (!cloudData.secure_url)
-        return res.status(500).json({
-          message: "Upload failed",
-          detail:  cloudData.error?.message,
-        });
+        const cloudData = await cloudRes.json();
+
+        if (!cloudData.secure_url)
+          return res.status(500).json({
+            message: "Upload failed",
+            detail:  cloudData.error?.message,
+          });
+
+        imageUrl = cloudData.secure_url;
+      }
 
       if (userID && userID.length === 24) {
-        await User.findByIdAndUpdate(userID, { image: cloudData.secure_url });
+        await User.findByIdAndUpdate(userID, { image: imageUrl });
       }
 
       return res.status(200).json({
         message:  "Upload ho gayi ✅",
-        imageUrl: cloudData.secure_url,
+        imageUrl: imageUrl,
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
