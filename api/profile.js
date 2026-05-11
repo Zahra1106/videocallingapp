@@ -63,26 +63,42 @@ export default async function handler(req, res) {
         return res.status(404).json({ message: "User nahi mila" });
 
       return res.status(200).json({
-        name:  user.name,
-        email: user.email,
-        image: user.image ?? "",
-        bio:   user.bio   ?? "Hey there! I am using ZunO",
+        name:       user.name,
+        email:      user.email,
+        image:      user.image      ?? "",
+        bio:        user.bio        ?? "Hey there! I am using ZunO",
+        picPrivacy: user.picPrivacy ?? "everyone",  // ✅ privacy return karo
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
-  // ── POST — bio update ───────────────────────────────────────
+  // ── POST — bio ya privacy update ────────────────────────────
   if (req.method === "POST") {
     try {
-      const { userID, bio } = req.body;
+      const { userID, bio, picPrivacy } = req.body;
       if (!userID)
         return res.status(400).json({ message: "userID chahiye" });
 
-      await User.findByIdAndUpdate(userID, { bio });
+      const updateFields = {};
 
-      return res.status(200).json({ message: "Bio update ho gayi ✅" });
+      // Bio update
+      if (bio !== undefined) {
+        updateFields.bio = bio;
+      }
+
+      // ✅ Privacy update — "everyone" ya "nobody"
+      if (picPrivacy !== undefined) {
+        const allowed = ["everyone", "nobody"];
+        if (!allowed.includes(picPrivacy))
+          return res.status(400).json({ message: "Invalid privacy option" });
+        updateFields.picPrivacy = picPrivacy;
+      }
+
+      await User.findByIdAndUpdate(userID, updateFields);
+
+      return res.status(200).json({ message: "Profile update ho gayi ✅" });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
