@@ -63,7 +63,7 @@ export default async function handler(req, res) {
 
   // ── POST /api/groups/message (send message) ─────────────────
   if (req.method === "POST" && path === "message") {
-    const { groupID, senderID, senderName, text } = req.body;
+    const { groupID, senderID, senderName, text, viewOnce, disappearAfter } = req.body;
     if (!groupID || !senderID || !text)
       return res.status(400).json({ message: "Fields missing" });
 
@@ -71,15 +71,53 @@ export default async function handler(req, res) {
       const group = await Group.findById(groupID);
       if (!group) return res.status(404).json({ message: "Group nahi mila" });
 
-      // ✅ onlyAdminCanMessage check
       if (group.onlyAdminCanMessage && group.createdBy !== senderID)
         return res.status(403).json({ message: "Sirf admin message kar sakta hai" });
 
+      const now           = Date.now();
+      const disappearSecs = Number(disappearAfter) || 0;
+
+      const newMsg = {
+        senderID,
+        senderName,
+        text,
+        timestamp:      new Date(),
+        viewOnce:       viewOnce === true,
+        viewedBy:       [],
+        disappearAfter: disappearSecs,
+        disappearsAt:   disappearSecs > 0 ? now + disappearSecs * 1000 : 0,
+      };
+
       await Group.findByIdAndUpdate(groupID, {
-        $push: { messages: { senderID, senderName, text, timestamp: new Date() } },
+        $push: { messages: newMsg },
         $set:  { lastMessage: text, lastMessageTime: new Date() },
       });
+
       return res.json({ message: "Message chala gaya ✅" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── PATCH /api/groups/message — viewOnce mark ───────────────
+  if (req.method === "PATCH" && path === "message") {
+    const { groupID, messageID, userID, markViewed } = req.body;
+    if (!groupID || !messageID || !userID)
+      return res.status(400).json({ message: "Fields missing" });
+
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+
+      const msg = group.messages.id(messageID);
+      if (!msg) return res.status(404).json({ message: "Message nahi mila" });
+
+      if (markViewed && !msg.viewedBy.includes(userID)) {
+        msg.viewedBy.push(userID);
+        await group.save();
+      }
+
+      return res.json({ message: "Viewed mark ho gaya" });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
@@ -87,13 +125,28 @@ export default async function handler(req, res) {
 
   // ── GET /api/groups/messages ────────────────────────────────
   if (req.method === "GET" && path === "messages") {
-    const { groupID } = req.query;
+    const { groupID, myID } = req.query;
     if (!groupID) return res.status(400).json({ message: "groupID chahiye" });
 
     try {
       const group = await Group.findById(groupID);
       if (!group) return res.status(404).json({ message: "Group nahi mila" });
-      return res.json({ messages: group.messages ?? [] });
+
+      const now = Date.now();
+
+      // ── Expired messages filter karo ────────────────────────
+      const filtered = (group.messages ?? []).filter(m => {
+        if (m.disappearsAt && m.disappearsAt > 0 && m.disappearsAt <= now)
+          return false;
+        return true;
+      });
+
+      const result = filtered.map(m => ({
+        ...m.toObject(),
+        viewedByMe: myID ? (m.viewedBy ?? []).includes(myID) : false,
+      }));
+
+      return res.json({ messages: result });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }

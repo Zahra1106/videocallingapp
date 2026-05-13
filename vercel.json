@@ -6,6 +6,7 @@
     { "source": "/api/groups/poll",     "destination": "/api/groups" },
     { "source": "/api/groups/vote",     "destination": "/api/groups" },
     { "source": "/api/groups/update",   "destination": "/api/groups" },
+    { "source": "/api/groups/delete",   "destination": "/api/groups" },
     { "source": "/api/typing",          "destination": "/api/chat" },
     { "source": "/api/upload",          "destination": "/api/profile" }
   ]
