@@ -11,13 +11,38 @@ const chatSchema = new mongoose.Schema({
   isRead:          { type: Boolean, default: false },
   reactions:       { type: Map, of: String, default: {} },
 
+  // ── DOCUMENT ───────────────────────────────────────────────
+  documentUrl:     { type: String, default: "" },
+  documentName:    { type: String, default: "" },
+  documentSize:    { type: Number, default: 0 },
+  documentType:    { type: String, default: "" },
+
+  // ── LOCATION ───────────────────────────────────────────────
+  location: {
+    lat:     { type: Number, default: null },
+    lng:     { type: Number, default: null },
+    address: { type: String, default: "" },
+    isLive:  { type: Boolean, default: false },
+  },
+
+  // ── REPLY TO ───────────────────────────────────────────────
+  replyTo:         { type: mongoose.Schema.Types.Mixed, default: null },
+
+  // ── EDIT ───────────────────────────────────────────────────
+  isEdited:        { type: Boolean, default: false },
+  editedAt:        { type: Date, default: null },
+
+  // ── DELETE ─────────────────────────────────────────────────
+  deletedFor:           { type: [String], default: [] },
+  isDeletedForEveryone: { type: Boolean, default: false },
+
   // ── VIEW ONCE ──────────────────────────────────────────────
   viewOnce:        { type: Boolean, default: false },
-  viewedBy:        { type: [String], default: [] },   // jinhonn ne dekha
+  viewedBy:        { type: [String], default: [] },
 
   // ── DISAPPEAR AFTER (seconds) — 0 = off ───────────────────
   disappearAfter:  { type: Number, default: 0 },
-  disappearsAt:    { type: Number, default: 0 },      // timestamp jab delete ho
+  disappearsAt:    { type: Number, default: 0 },
 });
 
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
@@ -61,46 +86,88 @@ export default async function handler(req, res) {
     }
   }
 
+  // ── READ MARK ───────────────────────────────────────────────
+  if (url.includes("/read")) {
+    if (req.method === "PATCH") {
+      try {
+        const { myID, targetID } = req.body;
+        if (!myID || !targetID)
+          return res.status(400).json({ message: "myID aur targetID chahiye" });
+
+        const ids    = [myID, targetID].sort();
+        const chatID = ids.join("_");
+
+        await Chat.updateMany(
+          { chatID, sender: targetID, isRead: false },
+          { $set: { isRead: true } }
+        );
+        return res.json({ message: "Read mark ho gaya" });
+      } catch (error) {
+        return res.status(500).json({ message: "Server error", error: error.message });
+      }
+    }
+  }
+
   // ── MESSAGE BHEJO ───────────────────────────────────────────
   if (req.method === "POST") {
     try {
       const {
-        myID, targetID, message, voiceUrl, imageUrl,
-        viewOnce, disappearAfter,
+        myID, targetID,
+        message       = "",
+        voiceUrl      = "",
+        imageUrl      = "",
+        documentUrl   = "",
+        documentName  = "",
+        documentSize  = 0,
+        documentType  = "",
+        location,
+        viewOnce      = false,
+        disappearAfter = 0,
+        replyTo,
       } = req.body;
 
       if (!myID || !targetID)
         return res.status(400).json({ message: "myID aur targetID chahiye" });
 
-      if (!message?.trim() && !voiceUrl?.trim() && !imageUrl?.trim())
-        return res.status(400).json({ message: "Message, voice ya image chahiye" });
+      const hasContent =
+        message?.trim() || voiceUrl?.trim() || imageUrl?.trim() ||
+        documentUrl?.trim() || location;
 
-      const ids = [myID, targetID].sort();
+      if (!hasContent)
+        return res.status(400).json({ message: "Message, voice, image, document ya location chahiye" });
+
+      const ids    = [myID, targetID].sort();
       const chatID = ids.join("_");
 
-      const now = Date.now();
+      const now          = Date.now();
       const disappearSecs = Number(disappearAfter) || 0;
 
       const newMsg = new Chat({
         chatID,
-        sender:         myID,
-        message:        message  ?? "",
-        voiceUrl:       voiceUrl ?? "",
-        imageUrl:       imageUrl ?? "",
-        time:           now,
-        isRead:         false,
-        reactions:      {},
-        viewOnce:       viewOnce === true,
-        viewedBy:       [],
+        sender:        myID,
+        message,
+        voiceUrl,
+        imageUrl,
+        documentUrl,
+        documentName,
+        documentSize,
+        documentType,
+        location:      location || null,
+        time:          now,
+        isRead:        false,
+        reactions:     {},
+        viewOnce:      viewOnce === true,
+        viewedBy:      [],
+        replyTo:       replyTo || null,
+        isEdited:      false,
+        deletedFor:    [],
+        isDeletedForEveryone: false,
         disappearAfter: disappearSecs,
-        disappearsAt:   disappearSecs > 0
-                          ? now + disappearSecs * 1000
-                          : 0,
+        disappearsAt:  disappearSecs > 0 ? now + disappearSecs * 1000 : 0,
       });
 
       await newMsg.save();
 
-      // ── Agar timer hai to background mein delete schedule karo ──
       if (disappearSecs > 0) {
         setTimeout(async () => {
           try { await Chat.findByIdAndDelete(newMsg._id); } catch (_) {}
@@ -130,23 +197,22 @@ export default async function handler(req, res) {
       if (!myID || !targetID)
         return res.status(400).json({ message: "myID aur targetID chahiye" });
 
-      const ids = [myID, targetID].sort();
-      const cID = ids.join("_");
+      const ids  = [myID, targetID].sort();
+      const cID  = ids.join("_");
+      const now  = Date.now();
 
       await Chat.updateMany(
         { chatID: cID, sender: targetID, isRead: false },
         { $set: { isRead: true } }
       );
 
-      const now = Date.now();
-
-      // ── Expired messages delete karo ────────────────────────
+      // Expired messages delete karo
       await Chat.deleteMany({
         chatID: cID,
         disappearsAt: { $gt: 0, $lte: now },
       });
 
-      // ── viewOnce: dono ne dekh liya to delete ───────────────
+      // viewOnce: dono ne dekh liya to delete
       const participants = [myID, targetID];
       await Chat.deleteMany({
         chatID:   cID,
@@ -156,12 +222,20 @@ export default async function handler(req, res) {
 
       const messages = await Chat.find({ chatID: cID }).sort({ time: 1 });
 
-      const result = messages.map(m => ({
-        ...m.toObject(),
-        reactions:    m.reactions ? Object.fromEntries(m.reactions) : {},
-        // ── Flutter ko batao: is myID ne dekha ya nahi ─────────
-        viewedByMe:   m.viewedBy?.includes(myID) ?? false,
-      }));
+      const result = messages.map(m => {
+        const obj = m.toObject();
+
+        // deletedFor me wale hide karo
+        if (obj.deletedFor?.includes(myID)) {
+          return null;
+        }
+
+        return {
+          ...obj,
+          reactions:  m.reactions ? Object.fromEntries(m.reactions) : {},
+          viewedByMe: m.viewedBy?.includes(myID) ?? false,
+        };
+      }).filter(Boolean);
 
       return res.status(200).json({ messages: result });
     } catch (error) {
@@ -169,10 +243,13 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── PATCH: reaction YA viewOnce mark ────────────────────────
+  // ── PATCH: reaction / viewOnce / edit / liveLocation ────────
   else if (req.method === "PATCH") {
     try {
-      const { messageID, userID, emoji, markViewed } = req.body;
+      const {
+        messageID, userID, emoji, markViewed,
+        newText, liveLocation,
+      } = req.body;
 
       if (!messageID || !userID)
         return res.status(400).json({ message: "messageID aur userID chahiye" });
@@ -181,7 +258,7 @@ export default async function handler(req, res) {
       if (!msg)
         return res.status(404).json({ message: "Message nahi mila" });
 
-      // ── View Once: viewed mark karo ─────────────────────────
+      // ── View Once mark ──────────────────────────────────────
       if (markViewed === true) {
         if (!msg.viewedBy.includes(userID)) {
           msg.viewedBy.push(userID);
@@ -190,29 +267,59 @@ export default async function handler(req, res) {
         return res.status(200).json({ message: "Viewed mark ho gaya" });
       }
 
-      // ── Reaction ─────────────────────────────────────────────
-      const reactions = msg.reactions || new Map();
-      if (reactions.get(userID) === emoji) {
-        reactions.delete(userID);
-      } else {
-        reactions.set(userID, emoji);
-      }
-      msg.reactions = reactions;
-      await msg.save();
+      // ── Edit Message ────────────────────────────────────────
+      if (newText !== undefined) {
+        if (msg.sender !== userID)
+          return res.status(403).json({ message: "Sirf apna message edit kar sakte hain" });
 
-      return res.status(200).json({
-        message:   "Reaction update ho gaya",
-        reactions: Object.fromEntries(reactions),
-      });
+        msg.message  = newText;
+        msg.isEdited = true;
+        msg.editedAt = new Date();
+        await msg.save();
+        return res.status(200).json({ message: "Message edit ho gaya", data: msg });
+      }
+
+      // ── Live Location Update ─────────────────────────────────
+      if (liveLocation) {
+        if (msg.sender !== userID)
+          return res.status(403).json({ message: "Sirf sender location update kar sakta hai" });
+
+        msg.location = {
+          ...msg.location,
+          lat:    liveLocation.lat,
+          lng:    liveLocation.lng,
+          isLive: liveLocation.isLive !== false,
+        };
+        await msg.save();
+        return res.status(200).json({ message: "Location update ho gaya", data: msg });
+      }
+
+      // ── Reaction ─────────────────────────────────────────────
+      if (emoji) {
+        const reactions = msg.reactions || new Map();
+        if (reactions.get(userID) === emoji) {
+          reactions.delete(userID);
+        } else {
+          reactions.set(userID, emoji);
+        }
+        msg.reactions = reactions;
+        await msg.save();
+        return res.status(200).json({
+          message:   "Reaction update ho gaya",
+          reactions: Object.fromEntries(reactions),
+        });
+      }
+
+      return res.status(400).json({ message: "Koi valid action nahi mila" });
     } catch (error) {
       return res.status(500).json({ message: "Server error", error: error.message });
     }
   }
 
-  // ── DELETE ──────────────────────────────────────────────────
+  // ── DELETE: for me / for everyone ───────────────────────────
   else if (req.method === "DELETE") {
     try {
-      const { messageID, userID } = req.body;
+      const { messageID, userID, deleteForEveryone = false } = req.body;
 
       if (!messageID || !userID)
         return res.status(400).json({ message: "messageID aur userID chahiye" });
@@ -221,11 +328,29 @@ export default async function handler(req, res) {
       if (!msg)
         return res.status(404).json({ message: "Message nahi mila" });
 
-      if (msg.sender !== userID)
-        return res.status(403).json({ message: "Sirf apna message delete kar sakte ho" });
+      if (deleteForEveryone) {
+        // Sirf sender sabke liye delete kar sakta hai
+        if (msg.sender !== userID)
+          return res.status(403).json({ message: "Sirf apna message sabke liye delete kar sakte hain" });
 
-      await Chat.findByIdAndDelete(messageID);
-      return res.status(200).json({ message: "Message delete ho gaya ✅" });
+        msg.message              = "";
+        msg.imageUrl             = "";
+        msg.voiceUrl             = "";
+        msg.documentUrl          = "";
+        msg.documentName         = "";
+        msg.documentSize         = 0;
+        msg.location             = null;
+        msg.isDeletedForEveryone = true;
+        await msg.save();
+        return res.status(200).json({ message: "Message sabke liye delete ho gaya ✅" });
+      } else {
+        // Delete for me — sirf is user ke liye hide
+        if (!msg.deletedFor.includes(userID)) {
+          msg.deletedFor.push(userID);
+          await msg.save();
+        }
+        return res.status(200).json({ message: "Aapke liye message delete ho gaya ✅" });
+      }
     } catch (error) {
       return res.status(500).json({ message: "Server error", error: error.message });
     }

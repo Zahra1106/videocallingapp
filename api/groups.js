@@ -1,17 +1,118 @@
 import { connectDB, Group } from "../lib/db.js";
+import mongoose from "mongoose";
+
+// ─── SCHEMAS ──────────────────────────────────────────────────
+// (agar alag GroupMessage model use kar rahe ho to in schemas ko
+//  models/GroupMessage.js se import karo aur neeche wali lines hata do)
+
+const locationSchema = new mongoose.Schema(
+  {
+    lat:     { type: Number, required: true },
+    lng:     { type: Number, required: true },
+    address: { type: String, default: "" },
+    isLive:  { type: Boolean, default: false },
+  },
+  { _id: false }
+);
+
+const pollOptionSchema = new mongoose.Schema(
+  {
+    text:  { type: String, required: true },
+    votes: { type: [String], default: [] },
+  },
+  { _id: false }
+);
+
+const replyToSchema = new mongoose.Schema(
+  {
+    _id:          { type: String },
+    senderID:     { type: String },
+    senderName:   { type: String },
+    text:         { type: String, default: "" },
+    imageUrl:     { type: String, default: "" },
+    voiceUrl:     { type: String, default: "" },
+    documentUrl:  { type: String, default: "" },
+    documentName: { type: String, default: "" },
+  },
+  { _id: false }
+);
+
+const groupMessageSchema = new mongoose.Schema(
+  {
+    groupID:    { type: String, required: true, index: true },
+    senderID:   { type: String, required: true },
+    senderName: { type: String, default: "" },
+
+    // ── Content ───────────────────────────────────────────
+    text:         { type: String, default: "" },
+    imageUrl:     { type: String, default: "" },
+    voiceUrl:     { type: String, default: "" },
+
+    // ── Document ─────────────────────────────────────────
+    documentUrl:  { type: String, default: "" },
+    documentName: { type: String, default: "" },
+    documentSize: { type: Number, default: 0 },
+    documentType: { type: String, default: "" },
+
+    // ── Location ─────────────────────────────────────────
+    location: { type: locationSchema, default: null },
+
+    // ── Poll ─────────────────────────────────────────────
+    isPoll: { type: Boolean, default: false },
+    poll: {
+      question: { type: String },
+      options:  { type: [pollOptionSchema], default: [] },
+    },
+
+    // ── Reply ────────────────────────────────────────────
+    replyTo: { type: replyToSchema, default: null },
+
+    // ── Reactions ────────────────────────────────────────
+    reactions: { type: Map, of: String, default: {} },
+
+    // ── Read receipts ────────────────────────────────────
+    readBy: { type: [String], default: [] },
+
+    // ── View Once ────────────────────────────────────────
+    viewOnce: { type: Boolean, default: false },
+    viewedBy: { type: [String], default: [] },
+
+    // ── Auto Disappear ───────────────────────────────────
+    disappearsAt: { type: Number, default: 0 },
+
+    // ── Edit ────────────────────────────────────────────
+    isEdited: { type: Boolean, default: false },
+    editedAt: { type: Date,    default: null },
+
+    // ── Delete ──────────────────────────────────────────
+    deletedFor:           { type: [String], default: [] },
+    isDeletedForEveryone: { type: Boolean,  default: false },
+  },
+  { timestamps: true }
+);
+
+groupMessageSchema.index({ groupID: 1, createdAt: 1 });
+
+const GroupMessage =
+  mongoose.models.GroupMessage ||
+  mongoose.model("GroupMessage", groupMessageSchema);
+
+// ─────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   await connectDB();
 
-  // ✅ FIX: Vercel pe req.url "/api/groups/update" ya "/update" dono ho sakta hai
-  // isliye sirf last segment check karo
   const fullUrl = req.url.split("?")[0];
-  const path = fullUrl.split("/").pop(); // "update", "create", "messages", etc.
+  const path    = fullUrl.split("/").pop(); // "update", "create", "messages", etc.
 
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Origin",  "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") return res.status(200).end();
+
+  // ════════════════════════════════════════════════════════════
+  //  GROUPS LIST
+  // ════════════════════════════════════════════════════════════
 
   // ── GET /api/groups ─────────────────────────────────────────
   if (req.method === "GET" && path !== "messages") {
@@ -25,16 +126,20 @@ export default async function handler(req, res) {
           groupID:             g._id.toString(),
           name:                g.name,
           members:             g.members,
-          lastMessage:         g.lastMessage ?? "",
+          lastMessage:         g.lastMessage         ?? "",
           lastMessageTime:     g.lastMessageTime,
           createdBy:           g.createdBy,
-          onlyAdminCanMessage: g.onlyAdminCanMessage ?? false, // ✅ yeh bhi bhejo
+          onlyAdminCanMessage: g.onlyAdminCanMessage ?? false,
         })),
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
+
+  // ════════════════════════════════════════════════════════════
+  //  GROUP CREATE
+  // ════════════════════════════════════════════════════════════
 
   // ── POST /api/groups/create ─────────────────────────────────
   if (req.method === "POST" && path === "create") {
@@ -45,27 +150,92 @@ export default async function handler(req, res) {
     try {
       const group = await Group.create({
         name,
-        createdBy: creatorID,
+        createdBy:           creatorID,
         creatorName,
-        members,
-        lastMessage: "",
-        lastMessageTime: new Date(),
+        members:             [...new Set(members)],
+        lastMessage:         "",
+        lastMessageTime:     new Date(),
         onlyAdminCanMessage: false,
       });
       return res.status(201).json({
         message: "Group ban gaya ✅",
         groupID: group._id.toString(),
+        group,
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
-  // ── POST /api/groups/message (send message) ─────────────────
+  // ════════════════════════════════════════════════════════════
+  //  MESSAGES FETCH
+  // ════════════════════════════════════════════════════════════
+
+  // ── GET /api/groups/messages ────────────────────────────────
+  if (req.method === "GET" && path === "messages") {
+    const { groupID, myID = "" } = req.query;
+    if (!groupID) return res.status(400).json({ message: "groupID chahiye" });
+
+    try {
+      const now = Date.now();
+
+      // Expired messages delete karo
+      await GroupMessage.deleteMany({
+        groupID,
+        disappearsAt: { $gt: 0, $lte: now },
+      });
+
+      const messages = await GroupMessage.find({
+        groupID,
+        isDeletedForEveryone: { $ne: true },
+      }).sort({ createdAt: 1 });
+
+      const result = messages
+        .filter(m => myID === "" || !m.deletedFor.includes(myID))
+        .map(m => ({
+          ...m.toObject(),
+          reactions:  m.reactions ? Object.fromEntries(m.reactions) : {},
+          viewedByMe: m.viewOnce ? m.viewedBy.includes(myID) : false,
+          readByMe:   m.readBy?.includes(myID) ?? false,
+        }));
+
+      return res.json({ messages: result });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  MESSAGE SEND
+  // ════════════════════════════════════════════════════════════
+
+  // ── POST /api/groups/message ────────────────────────────────
   if (req.method === "POST" && path === "message") {
-    const { groupID, senderID, senderName, text, viewOnce, disappearAfter } = req.body;
-    if (!groupID || !senderID || !text)
-      return res.status(400).json({ message: "Fields missing" });
+    const {
+      groupID,
+      senderID,
+      senderName     = "",
+      text           = "",
+      imageUrl       = "",
+      voiceUrl       = "",
+      documentUrl    = "",
+      documentName   = "",
+      documentSize   = 0,
+      documentType   = "",
+      location,
+      viewOnce       = false,
+      disappearAfter = 0,
+      replyTo,
+    } = req.body;
+
+    if (!groupID || !senderID)
+      return res.status(400).json({ message: "groupID aur senderID chahiye" });
+
+    const hasContent =
+      text?.trim() || imageUrl?.trim() || voiceUrl?.trim() ||
+      documentUrl?.trim() || location;
+    if (!hasContent)
+      return res.status(400).json({ message: "Text, image, voice, document ya location chahiye" });
 
     try {
       const group = await Group.findById(groupID);
@@ -77,106 +247,215 @@ export default async function handler(req, res) {
       const now           = Date.now();
       const disappearSecs = Number(disappearAfter) || 0;
 
-      const newMsg = {
+      const msg = await GroupMessage.create({
+        groupID,
         senderID,
         senderName,
         text,
-        timestamp:      new Date(),
-        viewOnce:       viewOnce === true,
-        viewedBy:       [],
-        disappearAfter: disappearSecs,
-        disappearsAt:   disappearSecs > 0 ? now + disappearSecs * 1000 : 0,
-      };
-
-      await Group.findByIdAndUpdate(groupID, {
-        $push: { messages: newMsg },
-        $set:  { lastMessage: text, lastMessageTime: new Date() },
+        imageUrl,
+        voiceUrl,
+        documentUrl,
+        documentName,
+        documentSize,
+        documentType,
+        location:    location || null,
+        viewOnce:    viewOnce === true,
+        viewedBy:    [],
+        replyTo:     replyTo || null,
+        deletedFor:  [],
+        disappearsAt: disappearSecs > 0 ? now + disappearSecs * 1000 : 0,
       });
 
-      return res.json({ message: "Message chala gaya ✅" });
-    } catch (e) {
-      return res.status(500).json({ message: "Server error", error: e.message });
-    }
-  }
+      // Group ka lastMessage update karo
+      const preview = text?.trim()
+        || (imageUrl    ? "📷 Image"    : "")
+        || (voiceUrl    ? "🎤 Voice"    : "")
+        || (documentUrl ? "📄 Document" : "")
+        || (location    ? "📍 Location" : "");
 
-  // ── PATCH /api/groups/message — viewOnce mark ───────────────
-  if (req.method === "PATCH" && path === "message") {
-    const { groupID, messageID, userID, markViewed } = req.body;
-    if (!groupID || !messageID || !userID)
-      return res.status(400).json({ message: "Fields missing" });
+      await Group.findByIdAndUpdate(groupID, {
+        $set: { lastMessage: preview, lastMessageTime: new Date() },
+      });
 
-    try {
-      const group = await Group.findById(groupID);
-      if (!group) return res.status(404).json({ message: "Group nahi mila" });
-
-      const msg = group.messages.id(messageID);
-      if (!msg) return res.status(404).json({ message: "Message nahi mila" });
-
-      if (markViewed && !msg.viewedBy.includes(userID)) {
-        msg.viewedBy.push(userID);
-        await group.save();
+      // Auto-delete schedule
+      if (disappearSecs > 0) {
+        setTimeout(async () => {
+          try { await GroupMessage.findByIdAndDelete(msg._id); } catch (_) {}
+        }, disappearSecs * 1000);
       }
 
-      return res.json({ message: "Viewed mark ho gaya" });
+      return res.status(201).json({ message: "Message bhej diya ✅", data: msg });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
-  // ── GET /api/groups/messages ────────────────────────────────
-  if (req.method === "GET" && path === "messages") {
-    const { groupID, myID } = req.query;
-    if (!groupID) return res.status(400).json({ message: "groupID chahiye" });
+  // ════════════════════════════════════════════════════════════
+  //  MESSAGE PATCH: edit / reaction / viewOnce / liveLocation / readBy
+  // ════════════════════════════════════════════════════════════
+
+  // ── PATCH /api/groups/message ────────────────────────────────
+  if (req.method === "PATCH" && path === "message") {
+    const {
+      messageID, userID,
+      markViewed, markRead,
+      newText,
+      emoji,
+      liveLocation,
+    } = req.body;
+
+    if (!messageID || !userID)
+      return res.status(400).json({ message: "messageID aur userID chahiye" });
+
+    try {
+      const msg = await GroupMessage.findById(messageID);
+      if (!msg) return res.status(404).json({ message: "Message nahi mila" });
+
+      // ── View Once mark ──────────────────────────────────────
+      if (markViewed) {
+        if (!msg.viewedBy.includes(userID)) msg.viewedBy.push(userID);
+        await msg.save();
+        return res.json({ message: "Viewed mark ho gaya" });
+      }
+
+      // ── Read receipt ────────────────────────────────────────
+      if (markRead) {
+        if (!msg.readBy.includes(userID)) msg.readBy.push(userID);
+        await msg.save();
+        return res.json({ message: "Read mark ho gaya" });
+      }
+
+      // ── Edit Message ─────────────────────────────────────────
+      if (newText !== undefined) {
+        if (msg.senderID !== userID)
+          return res.status(403).json({ message: "Sirf apna message edit kar sakte hain" });
+
+        msg.text     = newText;
+        msg.isEdited = true;
+        msg.editedAt = new Date();
+        await msg.save();
+        return res.json({ message: "Message edit ho gaya", data: msg });
+      }
+
+      // ── Live Location Update ─────────────────────────────────
+      if (liveLocation) {
+        if (msg.senderID !== userID)
+          return res.status(403).json({ message: "Sirf sender location update kar sakta hai" });
+
+        msg.location = {
+          lat:     liveLocation.lat,
+          lng:     liveLocation.lng,
+          address: liveLocation.address || msg.location?.address || "",
+          isLive:  liveLocation.isLive !== false,
+        };
+        await msg.save();
+        return res.json({ message: "Location update ho gaya", data: msg });
+      }
+
+      // ── Reaction ─────────────────────────────────────────────
+      if (emoji) {
+        const reactions = msg.reactions || new Map();
+        if (reactions.get(userID) === emoji) {
+          reactions.delete(userID); // toggle off
+        } else {
+          reactions.set(userID, emoji);
+        }
+        msg.reactions = reactions;
+        await msg.save();
+        return res.json({
+          message:   "Reaction ho gaya",
+          reactions: Object.fromEntries(reactions),
+        });
+      }
+
+      return res.status(400).json({ message: "Koi valid action nahi" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  MESSAGE DELETE: for me / for everyone
+  // ════════════════════════════════════════════════════════════
+
+  // ── DELETE /api/groups/message ──────────────────────────────
+  if (req.method === "DELETE" && path === "message") {
+    const { groupID, messageID, userID, deleteForEveryone = false } = req.body;
+
+    if (!messageID || !userID)
+      return res.status(400).json({ message: "messageID aur userID chahiye" });
+
+    try {
+      const msg = await GroupMessage.findById(messageID);
+      if (!msg) return res.status(404).json({ message: "Message nahi mila" });
+
+      if (deleteForEveryone) {
+        // Sender ya group admin delete kar sakta hai
+        const group   = groupID ? await Group.findById(groupID) : null;
+        const isAdmin = group && group.createdBy === userID;
+
+        if (msg.senderID !== userID && !isAdmin)
+          return res.status(403).json({ message: "Sirf apna message sabke liye delete kar sakte hain" });
+
+        msg.text                 = "";
+        msg.imageUrl             = "";
+        msg.voiceUrl             = "";
+        msg.documentUrl          = "";
+        msg.documentName         = "";
+        msg.documentSize         = 0;
+        msg.location             = null;
+        msg.isDeletedForEveryone = true;
+        await msg.save();
+        return res.json({ message: "Sabke liye delete ho gaya ✅" });
+      } else {
+        if (!msg.deletedFor.includes(userID)) {
+          msg.deletedFor.push(userID);
+          await msg.save();
+        }
+        return res.json({ message: "Aapke liye delete ho gaya ✅" });
+      }
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  POLL
+  // ════════════════════════════════════════════════════════════
+
+  // ── POST /api/groups/poll ────────────────────────────────────
+  if (req.method === "POST" && path === "poll") {
+    const { groupID, senderID, senderName, question, options } = req.body;
+    if (!groupID || !senderID || !question || !options?.length)
+      return res.status(400).json({ message: "groupID, senderID, question aur options chahiye" });
 
     try {
       const group = await Group.findById(groupID);
       if (!group) return res.status(404).json({ message: "Group nahi mila" });
 
-      const now = Date.now();
+      if (group.onlyAdminCanMessage && group.createdBy !== senderID)
+        return res.status(403).json({ message: "Sirf admin message kar sakta hai" });
 
-      // ── Expired messages filter karo ────────────────────────
-      const filtered = (group.messages ?? []).filter(m => {
-        if (m.disappearsAt && m.disappearsAt > 0 && m.disappearsAt <= now)
-          return false;
-        return true;
+      const pollOptions = options.map(opt => ({ text: opt, votes: [] }));
+
+      const msg = await GroupMessage.create({
+        groupID,
+        senderID,
+        senderName: senderName || "",
+        text:       `📊 Poll: ${question}`,
+        isPoll:     true,
+        poll:       { question, options: pollOptions },
+        deletedFor: [],
       });
 
-      const result = filtered.map(m => ({
-        ...m.toObject(),
-        viewedByMe: myID ? (m.viewedBy ?? []).includes(myID) : false,
-      }));
-
-      return res.json({ messages: result });
-    } catch (e) {
-      return res.status(500).json({ message: "Server error", error: e.message });
-    }
-  }
-
-  // ── POST /api/groups/poll (create poll) ─────────────────────
-  if (req.method === "POST" && path === "poll") {
-    const { groupID, senderID, senderName, question, options } = req.body;
-    if (!groupID || !question || !options?.length)
-      return res.status(400).json({ message: "groupID, question aur options chahiye" });
-
-    try {
-      const pollOptions = options.map(opt => ({ text: opt, votes: [] }));
       await Group.findByIdAndUpdate(groupID, {
-        $push: {
-          messages: {
-            senderID,
-            senderName,
-            text:      `📊 Poll: ${question}`,
-            timestamp: new Date(),
-            isPoll:    true,
-            poll:      { question, options: pollOptions },
-          },
-        },
         $set: {
           lastMessage:     `📊 Poll: ${question}`,
           lastMessageTime: new Date(),
         },
       });
-      return res.status(201).json({ message: "Poll ban gaya ✅" });
+
+      return res.status(201).json({ message: "Poll ban gaya ✅", data: msg });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
@@ -184,40 +463,42 @@ export default async function handler(req, res) {
 
   // ── PATCH/POST /api/groups/vote ─────────────────────────────
   if ((req.method === "PATCH" || req.method === "POST") && path === "vote") {
-    const { groupID, messageID, optionIndex, userID } = req.body;
-    if (!groupID || !messageID || optionIndex === undefined || !userID)
-      return res.status(400).json({ message: "Fields missing" });
+    const { messageID, optionIndex, userID } = req.body;
+    if (!messageID || optionIndex === undefined || !userID)
+      return res.status(400).json({ message: "messageID, optionIndex, userID chahiye" });
 
     try {
-      const group = await Group.findById(groupID);
-      if (!group) return res.status(404).json({ message: "Group nahi mila" });
-
-      const msg = group.messages.id(messageID);
+      const msg = await GroupMessage.findById(messageID);
       if (!msg || !msg.isPoll)
         return res.status(404).json({ message: "Poll nahi mila" });
 
-      // Pehle is user ka vote sab options se hatao (toggle support)
+      // Pehle is user ka vote sab options se hatao (toggle)
       msg.poll.options.forEach(opt => {
         opt.votes = opt.votes.filter(v => v !== userID);
       });
-      msg.poll.options[optionIndex].votes.push(userID);
-      await group.save();
+      if (optionIndex >= 0 && optionIndex < msg.poll.options.length) {
+        msg.poll.options[optionIndex].votes.push(userID);
+      }
 
+      msg.markModified("poll");
+      await msg.save();
       return res.json({ message: "Vote ho gaya ✅", poll: msg.poll });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
+  // ════════════════════════════════════════════════════════════
+  //  GROUP UPDATE
+  // ════════════════════════════════════════════════════════════
+
   // ── PATCH /api/groups/update ────────────────────────────────
   if (req.method === "PATCH" && path === "update") {
     const { groupID, userID, name, action, targetUserID, onlyAdminCanMessage } = req.body;
 
-    // ✅ Basic validation
     if (!groupID || !userID)
       return res.status(400).json({ message: "groupID aur userID chahiye" });
 
-    // ✅ Action ya name — kuch toh hona chahiye
     if (!action && !name)
       return res.status(400).json({ message: "action ya name chahiye" });
 
@@ -231,7 +512,7 @@ export default async function handler(req, res) {
         return res.json({ message: "Group leave ho gaya ✅" });
       }
 
-      // ── Baaki sab actions admin hi kar sakta hai ────────────
+      // ── Baaki sab admin hi kar sakta hai ────────────────────
       if (group.createdBy !== userID)
         return res.status(403).json({ message: "Sirf admin yeh kar sakta hai" });
 
@@ -277,32 +558,6 @@ export default async function handler(req, res) {
       }
 
       return res.status(400).json({ message: "Valid action nahi mili" });
-
-    } catch (e) {
-      return res.status(500).json({ message: "Server error", error: e.message });
-    }
-  }
-
-  // ── DELETE /api/groups/message ──────────────────────────────
-  if (req.method === "DELETE" && path === "message") {
-    const { groupID, messageID, userID } = req.body;
-    if (!groupID || !messageID || !userID)
-      return res.status(400).json({ message: "Fields missing" });
-
-    try {
-      const group = await Group.findById(groupID);
-      if (!group) return res.status(404).json({ message: "Group nahi mila" });
-
-      const msg = group.messages.id(messageID);
-      if (!msg) return res.status(404).json({ message: "Message nahi mila" });
-
-      if (msg.senderID !== userID && group.createdBy !== userID)
-        return res.status(403).json({ message: "Permission nahi hai" });
-
-      msg.deleteOne();
-      await group.save();
-
-      return res.json({ message: "Message delete ho gaya ✅" });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
@@ -312,7 +567,7 @@ export default async function handler(req, res) {
   return res.status(404).json({
     message: "Route nahi mila",
     method:  req.method,
-    url:     fullUrl,   // ✅ debug ke liye
+    url:     fullUrl,
     path,
   });
 }
