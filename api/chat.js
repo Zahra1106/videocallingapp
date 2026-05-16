@@ -1,4 +1,4 @@
-import { connectDB } from "../lib/db.js";
+import { connectDB, User } from "../lib/db.js";
 import mongoose from "mongoose";
 
 const chatSchema = new mongoose.Schema({
@@ -94,6 +94,12 @@ export default async function handler(req, res) {
         if (!myID || !targetID)
           return res.status(400).json({ message: "myID aur targetID chahiye" });
 
+        // ✅ READ RECEIPTS CHECK — agar sender ne off kiya hua hai toh mark mat karo
+        const sender = await User.findById(targetID, { readReceipts: 1 });
+        if (sender && sender.readReceipts === false) {
+          return res.json({ message: "Read receipts off hain, skip" });
+        }
+
         const ids    = [myID, targetID].sort();
         const chatID = ids.join("_");
 
@@ -135,6 +141,9 @@ export default async function handler(req, res) {
 
       if (!hasContent)
         return res.status(400).json({ message: "Message, voice, image, document ya location chahiye" });
+
+      // ✅ SILENCE UNKNOWN CALLERS — yeh chat ke liye nahi, call ke liye hai
+      // (communication.js mein handle hoga)
 
       const ids    = [myID, targetID].sort();
       const chatID = ids.join("_");
@@ -201,10 +210,14 @@ export default async function handler(req, res) {
       const cID  = ids.join("_");
       const now  = Date.now();
 
-      await Chat.updateMany(
-        { chatID: cID, sender: targetID, isRead: false },
-        { $set: { isRead: true } }
-      );
+      // ✅ READ RECEIPTS CHECK — agar targetID ne off kiya hai toh auto-read mat karo
+      const targetUser = await User.findById(targetID, { readReceipts: 1 });
+      if (!targetUser || targetUser.readReceipts !== false) {
+        await Chat.updateMany(
+          { chatID: cID, sender: targetID, isRead: false },
+          { $set: { isRead: true } }
+        );
+      }
 
       // Expired messages delete karo
       await Chat.deleteMany({
@@ -225,7 +238,6 @@ export default async function handler(req, res) {
       const result = messages.map(m => {
         const obj = m.toObject();
 
-        // deletedFor me wale hide karo
         if (obj.deletedFor?.includes(myID)) {
           return null;
         }
@@ -329,7 +341,6 @@ export default async function handler(req, res) {
         return res.status(404).json({ message: "Message nahi mila" });
 
       if (deleteForEveryone) {
-        // Sirf sender sabke liye delete kar sakta hai
         if (msg.sender !== userID)
           return res.status(403).json({ message: "Sirf apna message sabke liye delete kar sakte hain" });
 
@@ -344,7 +355,6 @@ export default async function handler(req, res) {
         await msg.save();
         return res.status(200).json({ message: "Message sabke liye delete ho gaya ✅" });
       } else {
-        // Delete for me — sirf is user ke liye hide
         if (!msg.deletedFor.includes(userID)) {
           msg.deletedFor.push(userID);
           await msg.save();

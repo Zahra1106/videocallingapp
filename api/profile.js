@@ -23,8 +23,6 @@ export default async function handler(req, res) {
     try {
       let imageUrl = imageBase64;
 
-      // Agar base64 hai toh Cloudinary pe upload karo
-      // Agar already URL hai (http) toh seedha save karo
       if (!imageBase64.startsWith("http")) {
         const formData = new URLSearchParams();
         formData.append("file", imageBase64);
@@ -73,35 +71,85 @@ export default async function handler(req, res) {
       return res.status(200).json({
         name:       user.name,
         email:      user.email,
-        image:      user.image      ?? "",
-        bio:        user.bio        ?? "Hey there! I am using ZunO",
-        picPrivacy: user.picPrivacy ?? "everyone",  // ✅ privacy return karo
+        image:      user.image          ?? "",
+        bio:        user.bio            ?? "Hey there! I am using ZunO",
+
+        // ── Privacy fields ──────────────────────────────────
+        picPrivacy:     user.picPrivacy     ?? "everyone",
+        // lastSeen field ka naam update karo
+        lastSeenPrivacy: user.lastSeenPrivacy ?? "everyone",  // privacy setting
+        lastSeenTime:    user.lastSeenTime ?? null,            // actual time
+        hideOnline:     user.hideOnline     ?? false,
+        aboutPrivacy:   user.aboutPrivacy   ?? "everyone",
+        readReceipts:   user.readReceipts   ?? true,
+        silenceUnknown: user.silenceUnknown ?? false,
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
-  // ── POST — bio ya privacy update ────────────────────────────
+  // ── POST — profile / privacy update ─────────────────────────
   if (req.method === "POST") {
     try {
-      const { userID, bio, picPrivacy } = req.body;
+      const {
+        userID,
+        bio,
+        picPrivacy,
+        lastSeen,
+        hideOnline,
+        aboutPrivacy,
+        readReceipts,
+        silenceUnknown,
+      } = req.body;
+
       if (!userID)
         return res.status(400).json({ message: "userID chahiye" });
 
       const updateFields = {};
 
-      // Bio update
+      // Bio
       if (bio !== undefined) {
         updateFields.bio = bio;
       }
 
-      // ✅ Privacy update — "everyone" ya "nobody"
+      // Profile photo privacy
       if (picPrivacy !== undefined) {
         const allowed = ["everyone", "nobody"];
         if (!allowed.includes(picPrivacy))
-          return res.status(400).json({ message: "Invalid privacy option" });
+          return res.status(400).json({ message: "Invalid picPrivacy option" });
         updateFields.picPrivacy = picPrivacy;
+      }
+
+      // Last Seen
+      if (lastSeen !== undefined) {
+        const allowed = ["everyone", "contacts", "nobody"];
+        if (!allowed.includes(lastSeen))
+          return res.status(400).json({ message: "Invalid lastSeen option" });
+        updateFields.lastSeen = lastSeen;
+      }
+
+      // Online Status hide
+      if (hideOnline !== undefined) {
+        updateFields.hideOnline = Boolean(hideOnline);
+      }
+
+      // About Privacy
+      if (aboutPrivacy !== undefined) {
+        const allowed = ["everyone", "contacts", "nobody"];
+        if (!allowed.includes(aboutPrivacy))
+          return res.status(400).json({ message: "Invalid aboutPrivacy option" });
+        updateFields.aboutPrivacy = aboutPrivacy;
+      }
+
+      // Read Receipts (Blue ticks)
+      if (readReceipts !== undefined) {
+        updateFields.readReceipts = Boolean(readReceipts);
+      }
+
+      // Silence Unknown Callers
+      if (silenceUnknown !== undefined) {
+        updateFields.silenceUnknown = Boolean(silenceUnknown);
       }
 
       await User.findByIdAndUpdate(userID, updateFields);
