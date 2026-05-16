@@ -113,44 +113,54 @@ export default async function handler(req, res) {
   //  GET  — statuses load karo (privacy + 24h filter)
   // ============================================================
   if (req.method === "GET") {
-    try {
-      const { viewerID } = req.query;
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const all   = await Status.find({ createdAt: { $gte: since } })
-                               .sort({ createdAt: -1 });
+  try {
+    const { viewerID } = req.query;
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const all   = await Status.find({ createdAt: { $gte: since } })
+                             .sort({ createdAt: -1 });
 
-      const grouped = {};
-      for (const s of all) {
-        if (viewerID && viewerID !== s.userID) {
-          if (s.privacy === "nobody") continue;
+    const grouped = {};
+    for (const s of all) {
+      if (viewerID && viewerID !== s.userID) {
+        if (s.privacy === "nobody") continue;
+
+        if (s.privacy === "contacts_except") {
+          const isBlocked = (s.exceptList || []).includes(viewerID);
+          if (isBlocked) continue;
         }
-        if (!grouped[s.userID]) {
-          grouped[s.userID] = {
-            userID:   s.userID,
-            userName: s.userName,
-            statuses: [],
-          };
+
+        if (s.privacy === "only_share_with") {
+          const isAllowed = (s.allowedList || []).includes(viewerID);
+          if (!isAllowed) continue;
         }
-        grouped[s.userID].statuses.push({
-          id:          s._id.toString(),
-          mediaUrl:    s.mediaUrl    || null,
-          mediaType:   s.mediaType,
-          caption:     s.caption,
-          textContent: s.textContent || null,
-          bgColor:     s.bgColor     || null,
-          textColor:   s.textColor   || null,
-          viewers:     s.viewers     || [],
-          reactions:   s.reactions   || [],
-          replies:     s.replies     || [],
-          createdAt:   s.createdAt,
-        });
       }
-      return res.status(200).json({ statuses: Object.values(grouped) });
-    } catch (e) {
-      return res.status(500).json({ error: e.message });
-    }
-  }
 
+      if (!grouped[s.userID]) {
+        grouped[s.userID] = {
+          userID:   s.userID,
+          userName: s.userName,
+          statuses: [],
+        };
+      }
+      grouped[s.userID].statuses.push({
+        id:          s._id.toString(),
+        mediaUrl:    s.mediaUrl    || null,
+        mediaType:   s.mediaType,
+        caption:     s.caption,
+        textContent: s.textContent || null,
+        bgColor:     s.bgColor     || null,
+        textColor:   s.textColor   || null,
+        viewers:     s.viewers     || [],
+        reactions:   s.reactions   || [],
+        replies:     s.replies     || [],
+        createdAt:   s.createdAt,
+      });
+    }
+    return res.status(200).json({ statuses: Object.values(grouped) });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+}
   // ============================================================
   //  POST  — naya status banao
   // ============================================================
