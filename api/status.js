@@ -1,4 +1,4 @@
-import { connectDB, Status } from "./lib/db.js";
+import { connectDB, Status } from "../lib/db.js";
 import mongoose from "mongoose";
 
 // ── UserPrivacy Schema ──
