@@ -19,6 +19,10 @@
     { "source": "/api/favourites/add",    "destination": "/api/favourites" },
     { "source": "/api/favourites/remove", "destination": "/api/favourites" },
 
-    { "source": "/api/upload", "destination": "/api/profile" }
+    { "source": "/api/upload", "destination": "/api/profile" },
+    { "source": "/api/status/reply",   "destination": "/api/status" },
+    { "source": "/api/status/react",   "destination": "/api/status" },
+    { "source": "/api/status/view",    "destination": "/api/status" },
+    { "source": "/api/status/privacy", "destination": "/api/status" }
   ]
 }

@@ -5,6 +5,8 @@ dotenv.config();
 import express from "express";
 import cors from "cors";
 import { connectDB } from "./lib/db.js";
+// ── Status import ─────────────────────────────────────────────
+import statusHandler from "./api/status.js";  // ← add karo upar imports mein
 
 // ── Routes import ─────────────────────────────────────────────
 import signupHandler        from "./api/signup.js";
@@ -61,6 +63,12 @@ app.all("/api/communication/notified",  communicationHandler); // ✅ naya: noti
 app.all("/api/favourites",        favouritesHandler);
 app.all("/api/favourites/add",    favouritesHandler);
 app.all("/api/favourites/remove", favouritesHandler);
+// ── Status ────────────────────────────────────────────────────
+app.all("/api/status",          statusHandler);
+app.all("/api/status/reply",    statusHandler);
+app.all("/api/status/react",    statusHandler);
+app.all("/api/status/view",     statusHandler);
+app.all("/api/status/privacy",  statusHandler);
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/", (req, res) => {
