@@ -1,4 +1,4 @@
-import { connectDB, User } from "../lib/db.js";
+import { connectDB, User, ChatMeta } from "../lib/db.js";
 import mongoose from "mongoose";
 
 const chatSchema = new mongoose.Schema({
@@ -10,39 +10,25 @@ const chatSchema = new mongoose.Schema({
   time:            { type: Number, default: () => Date.now() },
   isRead:          { type: Boolean, default: false },
   reactions:       { type: Map, of: String, default: {} },
-
-  // ── DOCUMENT ───────────────────────────────────────────────
   documentUrl:     { type: String, default: "" },
   documentName:    { type: String, default: "" },
   documentSize:    { type: Number, default: 0 },
   documentType:    { type: String, default: "" },
-
-  // ── LOCATION ───────────────────────────────────────────────
   location: {
     lat:     { type: Number, default: null },
     lng:     { type: Number, default: null },
     address: { type: String, default: "" },
     isLive:  { type: Boolean, default: false },
   },
-
-  // ── REPLY TO ───────────────────────────────────────────────
-  replyTo:         { type: mongoose.Schema.Types.Mixed, default: null },
-
-  // ── EDIT ───────────────────────────────────────────────────
-  isEdited:        { type: Boolean, default: false },
-  editedAt:        { type: Date, default: null },
-
-  // ── DELETE ─────────────────────────────────────────────────
+  replyTo:              { type: mongoose.Schema.Types.Mixed, default: null },
+  isEdited:             { type: Boolean, default: false },
+  editedAt:             { type: Date, default: null },
   deletedFor:           { type: [String], default: [] },
   isDeletedForEveryone: { type: Boolean, default: false },
-
-  // ── VIEW ONCE ──────────────────────────────────────────────
-  viewOnce:        { type: Boolean, default: false },
-  viewedBy:        { type: [String], default: [] },
-
-  // ── DISAPPEAR AFTER (seconds) — 0 = off ───────────────────
-  disappearAfter:  { type: Number, default: 0 },
-  disappearsAt:    { type: Number, default: 0 },
+  viewOnce:             { type: Boolean, default: false },
+  viewedBy:             { type: [String], default: [] },
+  disappearAfter:       { type: Number, default: 0 },
+  disappearsAt:         { type: Number, default: 0 },
 });
 
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
@@ -58,9 +44,41 @@ export default async function handler(req, res) {
 
   await connectDB();
 
-  const url = req.url.split("?")[0];
+  const url    = req.url.split("?")[0];
+  const action = req.query.action;
 
-  // ── TYPING ──────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  //  CHAT META — favourites, archived, locked, lockCode
+  // ══════════════════════════════════════════════════════════
+
+  // ── GET meta ──────────────────────────────────────────────
+  if (req.method === "GET" && req.query.metaUserID) {
+    const meta = await ChatMeta.findOne({ userID: req.query.metaUserID });
+    return res.status(200).json({
+      favourites:  meta?.favourites  || [],
+      archived:    meta?.archived    || [],
+      lockedChats: meta?.lockedChats || [],
+      lockCode:    meta?.lockCode    || "",
+    });
+  }
+
+  // ── POST savemeta ─────────────────────────────────────────
+  if (action === "savemeta") {
+    const { userID, favourites, archived, lockedChats, lockCode } = req.body;
+    if (!userID)
+      return res.status(400).json({ message: "userID chahiye" });
+
+    await ChatMeta.findOneAndUpdate(
+      { userID },
+      { favourites, archived, lockedChats, lockCode },
+      { upsert: true, new: true }
+    );
+    return res.status(200).json({ message: "Meta save ho gaya ✅" });
+  }
+
+  // ══════════════════════════════════════════════════════════
+  //  TYPING
+  // ══════════════════════════════════════════════════════════
   if (url.includes("/typing")) {
     if (req.method === "POST") {
       const { chatID, userID, isTyping } = req.body;
@@ -80,13 +98,16 @@ export default async function handler(req, res) {
 
     if (req.method === "GET") {
       const { chatID, myID } = req.query;
-      if (!chatID) return res.status(400).json({ message: "chatID chahiye" });
+      if (!chatID)
+        return res.status(400).json({ message: "chatID chahiye" });
       const typingUserID = typingUsers[chatID];
       return res.json({ isTyping: !!(typingUserID && typingUserID !== myID) });
     }
   }
 
-  // ── READ MARK ───────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  //  READ MARK
+  // ══════════════════════════════════════════════════════════
   if (url.includes("/read")) {
     if (req.method === "PATCH") {
       try {
@@ -94,11 +115,9 @@ export default async function handler(req, res) {
         if (!myID || !targetID)
           return res.status(400).json({ message: "myID aur targetID chahiye" });
 
-        // ✅ READ RECEIPTS CHECK — agar sender ne off kiya hua hai toh mark mat karo
         const sender = await User.findById(targetID, { readReceipts: 1 });
-        if (sender && sender.readReceipts === false) {
+        if (sender && sender.readReceipts === false)
           return res.json({ message: "Read receipts off hain, skip" });
-        }
 
         const ids    = [myID, targetID].sort();
         const chatID = ids.join("_");
@@ -114,20 +133,22 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── MESSAGE BHEJO ───────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  //  POST — message bhejo
+  // ══════════════════════════════════════════════════════════
   if (req.method === "POST") {
     try {
       const {
         myID, targetID,
-        message       = "",
-        voiceUrl      = "",
-        imageUrl      = "",
-        documentUrl   = "",
-        documentName  = "",
-        documentSize  = 0,
-        documentType  = "",
+        message        = "",
+        voiceUrl       = "",
+        imageUrl       = "",
+        documentUrl    = "",
+        documentName   = "",
+        documentSize   = 0,
+        documentType   = "",
         location,
-        viewOnce      = false,
+        viewOnce       = false,
         disappearAfter = 0,
         replyTo,
       } = req.body;
@@ -142,13 +163,10 @@ export default async function handler(req, res) {
       if (!hasContent)
         return res.status(400).json({ message: "Message, voice, image, document ya location chahiye" });
 
-      // ✅ SILENCE UNKNOWN CALLERS — yeh chat ke liye nahi, call ke liye hai
-      // (communication.js mein handle hoga)
-
       const ids    = [myID, targetID].sort();
       const chatID = ids.join("_");
 
-      const now          = Date.now();
+      const now           = Date.now();
       const disappearSecs = Number(disappearAfter) || 0;
 
       const newMsg = new Chat({
@@ -189,7 +207,9 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── MESSAGES LAO ────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════
+  //  GET — messages lao
+  // ══════════════════════════════════════════════════════════
   else if (req.method === "GET") {
     try {
       const { myID, targetID, unreadCount, chatID } = req.query;
@@ -206,11 +226,10 @@ export default async function handler(req, res) {
       if (!myID || !targetID)
         return res.status(400).json({ message: "myID aur targetID chahiye" });
 
-      const ids  = [myID, targetID].sort();
-      const cID  = ids.join("_");
-      const now  = Date.now();
+      const ids = [myID, targetID].sort();
+      const cID = ids.join("_");
+      const now = Date.now();
 
-      // ✅ READ RECEIPTS CHECK — agar targetID ne off kiya hai toh auto-read mat karo
       const targetUser = await User.findById(targetID, { readReceipts: 1 });
       if (!targetUser || targetUser.readReceipts !== false) {
         await Chat.updateMany(
@@ -219,13 +238,11 @@ export default async function handler(req, res) {
         );
       }
 
-      // Expired messages delete karo
       await Chat.deleteMany({
         chatID: cID,
         disappearsAt: { $gt: 0, $lte: now },
       });
 
-      // viewOnce: dono ne dekh liya to delete
       const participants = [myID, targetID];
       await Chat.deleteMany({
         chatID:   cID,
@@ -237,11 +254,7 @@ export default async function handler(req, res) {
 
       const result = messages.map(m => {
         const obj = m.toObject();
-
-        if (obj.deletedFor?.includes(myID)) {
-          return null;
-        }
-
+        if (obj.deletedFor?.includes(myID)) return null;
         return {
           ...obj,
           reactions:  m.reactions ? Object.fromEntries(m.reactions) : {},
@@ -255,13 +268,12 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── PATCH: reaction / viewOnce / edit / liveLocation ────────
+  // ══════════════════════════════════════════════════════════
+  //  PATCH — reaction / edit / viewOnce / liveLocation
+  // ══════════════════════════════════════════════════════════
   else if (req.method === "PATCH") {
     try {
-      const {
-        messageID, userID, emoji, markViewed,
-        newText, liveLocation,
-      } = req.body;
+      const { messageID, userID, emoji, markViewed, newText, liveLocation } = req.body;
 
       if (!messageID || !userID)
         return res.status(400).json({ message: "messageID aur userID chahiye" });
@@ -270,7 +282,6 @@ export default async function handler(req, res) {
       if (!msg)
         return res.status(404).json({ message: "Message nahi mila" });
 
-      // ── View Once mark ──────────────────────────────────────
       if (markViewed === true) {
         if (!msg.viewedBy.includes(userID)) {
           msg.viewedBy.push(userID);
@@ -279,11 +290,9 @@ export default async function handler(req, res) {
         return res.status(200).json({ message: "Viewed mark ho gaya" });
       }
 
-      // ── Edit Message ────────────────────────────────────────
       if (newText !== undefined) {
         if (msg.sender !== userID)
           return res.status(403).json({ message: "Sirf apna message edit kar sakte hain" });
-
         msg.message  = newText;
         msg.isEdited = true;
         msg.editedAt = new Date();
@@ -291,11 +300,9 @@ export default async function handler(req, res) {
         return res.status(200).json({ message: "Message edit ho gaya", data: msg });
       }
 
-      // ── Live Location Update ─────────────────────────────────
       if (liveLocation) {
         if (msg.sender !== userID)
           return res.status(403).json({ message: "Sirf sender location update kar sakta hai" });
-
         msg.location = {
           ...msg.location,
           lat:    liveLocation.lat,
@@ -306,7 +313,6 @@ export default async function handler(req, res) {
         return res.status(200).json({ message: "Location update ho gaya", data: msg });
       }
 
-      // ── Reaction ─────────────────────────────────────────────
       if (emoji) {
         const reactions = msg.reactions || new Map();
         if (reactions.get(userID) === emoji) {
@@ -328,7 +334,9 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── DELETE: for me / for everyone ───────────────────────────
+  // ══════════════════════════════════════════════════════════
+  //  DELETE — for me / for everyone
+  // ══════════════════════════════════════════════════════════
   else if (req.method === "DELETE") {
     try {
       const { messageID, userID, deleteForEveryone = false } = req.body;

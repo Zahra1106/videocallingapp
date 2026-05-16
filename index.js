@@ -69,6 +69,7 @@ app.all("/api/status/reply",    statusHandler);
 app.all("/api/status/react",    statusHandler);
 app.all("/api/status/view",     statusHandler);
 app.all("/api/status/privacy",  statusHandler);
+app.all("/api/chat/savemeta",    chatHandler);
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/", (req, res) => {
