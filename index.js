@@ -49,8 +49,13 @@ app.all("/api/groups/messages", groupsHandler);
 app.all("/api/groups/update",   groupsHandler);
 app.all("/api/groups/poll",     groupsHandler);
 app.all("/api/groups/vote",     groupsHandler);
-app.all("/api/groups/document", groupsHandler); // ✅ naya: document upload
-
+app.all("/api/groups/document", groupsHandler);
+// ✅ Yeh add karo
+app.all("/api/groups/invite",   groupsHandler);
+app.all("/api/groups/join",     groupsHandler);
+app.all("/api/groups/pin",      groupsHandler);
+app.all("/api/groups/pinned",   groupsHandler);
+app.all("/api/groups/info",     groupsHandler);
 // ── Communication (CallLogs + Schedule) ───────────────────────
 app.all("/api/communication/calllogs",  communicationHandler); // POST + GET + DELETE
 app.all("/api/communication/create",    communicationHandler); // schedule banao
