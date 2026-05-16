@@ -17,12 +17,13 @@ export default async function handler(req, res) {
 
   await connectDB();
 
-  const url = req.url || "";
+  // ?action= se sub-routes handle karo (single file workaround for Vercel)
+  const action = req.query.action;
 
   // ============================================================
-  //  /api/status/view  — viewer track karo
+  //  action=view  — viewer track karo
   // ============================================================
-  if (url.includes("/view")) {
+  if (action === "view") {
     if (req.method !== "POST")
       return res.status(405).json({ message: "Method not allowed" });
     try {
@@ -41,22 +42,17 @@ export default async function handler(req, res) {
   }
 
   // ============================================================
-  //  /api/status/react  — reaction add karo
+  //  action=react  — reaction add karo
   // ============================================================
-  if (url.includes("/react")) {
+  if (action === "react") {
     if (req.method !== "POST")
       return res.status(405).json({ message: "Method not allowed" });
     try {
       const { statusID, reactorID, reactorName, emoji } = req.body;
       if (!statusID || !reactorID || !emoji)
-        return res.status(400).json({ message: "Fields missing hain" });
+        return res.status(400).json({ message: "Fields missing" });
 
-      // Purani reaction hatao pehle
-      await Status.updateOne(
-        { _id: statusID },
-        { $pull: { reactions: { reactorID } } }
-      );
-      // Nai reaction add karo
+      await Status.updateOne({ _id: statusID }, { $pull: { reactions: { reactorID } } });
       await Status.updateOne(
         { _id: statusID },
         { $push: { reactions: { reactorID, reactorName, emoji, reactedAt: new Date() } } }
@@ -68,42 +64,30 @@ export default async function handler(req, res) {
   }
 
   // ============================================================
-  //  /api/status/reply  — reply bhejo
+  //  action=reply  — reply save karo
   // ============================================================
-  if (url.includes("/reply")) {
+  if (action === "reply") {
     if (req.method !== "POST")
       return res.status(405).json({ message: "Method not allowed" });
     try {
-      const { statusID, statusOwnerID, replyerID, replyerName, message } = req.body;
+      const { statusID, replyerID, replyerName, message } = req.body;
       if (!statusID || !replyerID || !message)
         return res.status(400).json({ message: "Fields missing" });
 
-      const status = await Status.findById(statusID).lean();
-
-      // Reply ko Status ki replies array mein save karo
       await Status.updateOne(
         { _id: statusID },
-        {
-          $push: {
-            replies: {
-              replyerID,
-              replyerName,
-              message,
-              repliedAt: new Date(),
-            },
-          },
-        }
+        { $push: { replies: { replyerID, replyerName, message, repliedAt: new Date() } } }
       );
-      return res.status(200).json({ message: "Reply bhej di ✅" });
+      return res.status(200).json({ message: "Reply save ho gayi ✅" });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
   }
 
   // ============================================================
-  //  /api/status/privacy  — privacy setting
+  //  action=privacy  — privacy setting
   // ============================================================
-  if (url.includes("/privacy")) {
+  if (action === "privacy") {
     try {
       if (req.method === "POST") {
         const { userID, privacy } = req.body;
@@ -111,13 +95,10 @@ export default async function handler(req, res) {
           return res.status(400).json({ message: "Fields missing" });
 
         await UserPrivacy.findOneAndUpdate(
-          { userID },
-          { privacy },
-          { upsert: true, new: true }
+          { userID }, { privacy }, { upsert: true, new: true }
         );
         return res.status(200).json({ message: "Privacy update ho gayi ✅" });
       }
-
       if (req.method === "GET") {
         const { userID } = req.query;
         const doc = await UserPrivacy.findOne({ userID });
@@ -129,10 +110,8 @@ export default async function handler(req, res) {
   }
 
   // ============================================================
-  //  /api/status  — Main CRUD (GET / POST / DELETE)
+  //  GET  — statuses load karo (privacy + 24h filter)
   // ============================================================
-
-  // ── GET ──
   if (req.method === "GET") {
     try {
       const { viewerID } = req.query;
@@ -145,7 +124,6 @@ export default async function handler(req, res) {
         if (viewerID && viewerID !== s.userID) {
           if (s.privacy === "nobody") continue;
         }
-
         if (!grouped[s.userID]) {
           grouped[s.userID] = {
             userID:   s.userID,
@@ -153,7 +131,6 @@ export default async function handler(req, res) {
             statuses: [],
           };
         }
-
         grouped[s.userID].statuses.push({
           id:          s._id.toString(),
           mediaUrl:    s.mediaUrl    || null,
@@ -162,27 +139,28 @@ export default async function handler(req, res) {
           textContent: s.textContent || null,
           bgColor:     s.bgColor     || null,
           textColor:   s.textColor   || null,
-          viewers:     s.viewers,
-          reactions:   s.reactions,
-          replies:     s.replies,
+          viewers:     s.viewers     || [],
+          reactions:   s.reactions   || [],
+          replies:     s.replies     || [],
           createdAt:   s.createdAt,
         });
       }
-
       return res.status(200).json({ statuses: Object.values(grouped) });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
   }
 
-  // ── POST ──
+  // ============================================================
+  //  POST  — naya status banao
+  // ============================================================
   if (req.method === "POST") {
     try {
       const {
         userID, userName,
         mediaUrl, mediaType,
-        caption,
-        textContent, bgColor, textColor,
+        caption, textContent,
+        bgColor, textColor,
         privacy,
       } = req.body;
 
@@ -200,18 +178,19 @@ export default async function handler(req, res) {
         bgColor:     bgColor     || null,
         textColor:   textColor   || null,
         privacy:     privacy     || "everyone",
-        viewers:     [],
-        reactions:   [],
-        replies:     [],
+        viewers:  [],
+        reactions:[],
+        replies:  [],
       });
-
       return res.status(201).json({ message: "Status add ho gaya ✅", status });
     } catch (e) {
       return res.status(500).json({ error: e.message });
     }
   }
 
-  // ── DELETE ──
+  // ============================================================
+  //  DELETE
+  // ============================================================
   if (req.method === "DELETE") {
     try {
       const { statusID, userID } = req.body;
