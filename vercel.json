@@ -1,28 +1,9 @@
 {
-  "rewrites": [
-    
-    { "source": "/api/groups/create",   "destination": "/api/groups" },
-    { "source": "/api/groups/message",  "destination": "/api/groups" },
-    { "source": "/api/groups/messages", "destination": "/api/groups" },
-    { "source": "/api/groups/poll",     "destination": "/api/groups" },
-    { "source": "/api/groups/vote",     "destination": "/api/groups" },
-    { "source": "/api/groups/update",   "destination": "/api/groups" },
-    { "source": "/api/groups/delete",   "destination": "/api/groups" },
-
-    { "source": "/api/chat/typing",     "destination": "/api/chat" },
-
-    { "source": "/api/communication/calllogs",  "destination": "/api/communication" },
-    { "source": "/api/communication/create",    "destination": "/api/communication" },
-    { "source": "/api/communication/schedule",  "destination": "/api/communication" },
-    { "source": "/api/communication/delete",    "destination": "/api/communication" },
-
-    { "source": "/api/favourites/add",    "destination": "/api/favourites" },
-    { "source": "/api/favourites/remove", "destination": "/api/favourites" },
-
-    { "source": "/api/upload", "destination": "/api/profile" },
-    { "source": "/api/status/reply",   "destination": "/api/status" },
-    { "source": "/api/status/react",   "destination": "/api/status" },
-    { "source": "/api/status/view",    "destination": "/api/status" },
-    { "source": "/api/status/privacy", "destination": "/api/status" }
+  "version": 2,
+  "builds": [
+    { "src": "index.js", "use": "@vercel/node" }
+  ],
+  "routes": [
+    { "src": "/(.*)", "dest": "index.js" }
   ]
 }
