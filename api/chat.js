@@ -48,21 +48,8 @@ export default async function handler(req, res) {
   const action = req.query.action;
 
   // ══════════════════════════════════════════════════════════
-  //  CHAT META — favourites, archived, locked, lockCode
+  //  CHAT META POST — savemeta
   // ══════════════════════════════════════════════════════════
-
-  // ── GET meta ──────────────────────────────────────────────
-  if (req.method === "GET" && req.query.metaUserID) {
-    const meta = await ChatMeta.findOne({ userID: req.query.metaUserID });
-    return res.status(200).json({
-      favourites:  meta?.favourites  || [],
-      archived:    meta?.archived    || [],
-      lockedChats: meta?.lockedChats || [],
-      lockCode:    meta?.lockCode    || "",
-    });
-  }
-
-  // ── POST savemeta ─────────────────────────────────────────
   if (action === "savemeta") {
     const { userID, favourites, archived, lockedChats, lockCode } = req.body;
     if (!userID)
@@ -208,12 +195,24 @@ export default async function handler(req, res) {
   }
 
   // ══════════════════════════════════════════════════════════
-  //  GET — messages lao
+  //  GET — meta + messages + unread
   // ══════════════════════════════════════════════════════════
   else if (req.method === "GET") {
     try {
-      const { myID, targetID, unreadCount, chatID } = req.query;
+      const { myID, targetID, unreadCount, chatID, metaUserID } = req.query;
 
+      // ── Chat Meta ────────────────────────────────────────
+      if (metaUserID) {
+        const meta = await ChatMeta.findOne({ userID: metaUserID });
+        return res.status(200).json({
+          favourites:  meta?.favourites  || [],
+          archived:    meta?.archived    || [],
+          lockedChats: meta?.lockedChats || [],
+          lockCode:    meta?.lockCode    || "",
+        });
+      }
+
+      // ── Unread count ─────────────────────────────────────
       if (unreadCount === "true" && chatID) {
         const count = await Chat.countDocuments({
           chatID,
