@@ -38,7 +38,7 @@ export default async function handler(req, res) {
         if (!cloudData.secure_url)
           return res.status(500).json({
             message: "Upload failed",
-            detail:  cloudData.error?.message,
+            detail: cloudData.error?.message,
           });
 
         imageUrl = cloudData.secure_url;
@@ -49,7 +49,7 @@ export default async function handler(req, res) {
       }
 
       return res.status(200).json({
-        message:  "Upload ho gayi ✅",
+        message: "Upload ho gayi ✅",
         imageUrl: imageUrl,
       });
     } catch (e) {
@@ -69,20 +69,21 @@ export default async function handler(req, res) {
         return res.status(404).json({ message: "User nahi mila" });
 
       return res.status(200).json({
-        name:       user.name,
-        email:      user.email,
-        image:      user.image          ?? "",
-        bio:        user.bio            ?? "Hey there! I am using ZunO",
+        name:  user.name,
+        email: user.email,
+        image: user.image ?? "",
+        bio:   user.bio   ?? "Hey there! I am using ZunO",
 
         // ── Privacy fields ──────────────────────────────────
-        picPrivacy:     user.picPrivacy     ?? "everyone",
-        // lastSeen field ka naam update karo
-        lastSeenPrivacy: user.lastSeenPrivacy ?? "everyone",  // privacy setting
-        lastSeenTime:    user.lastSeenTime ?? null,            // actual time
-        hideOnline:     user.hideOnline     ?? false,
-        aboutPrivacy:   user.aboutPrivacy   ?? "everyone",
-        readReceipts:   user.readReceipts   ?? true,
-        silenceUnknown: user.silenceUnknown ?? false,
+        picPrivacy:      user.picPrivacy     ?? "everyone",
+        // ✅ NEW: picExceptList — jinhe profile pic nahi dikhani
+        picExceptList:   user.picExceptList  ?? [],
+        lastSeenPrivacy: user.lastSeenPrivacy ?? "everyone",
+        lastSeenTime:    user.lastSeenTime    ?? null,
+        hideOnline:      user.hideOnline      ?? false,
+        aboutPrivacy:    user.aboutPrivacy    ?? "everyone",
+        readReceipts:    user.readReceipts    ?? true,
+        silenceUnknown:  user.silenceUnknown  ?? false,
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
@@ -96,6 +97,7 @@ export default async function handler(req, res) {
         userID,
         bio,
         picPrivacy,
+        picExceptList,   // ✅ NEW
         lastSeen,
         hideOnline,
         aboutPrivacy,
@@ -115,10 +117,17 @@ export default async function handler(req, res) {
 
       // Profile photo privacy
       if (picPrivacy !== undefined) {
-        const allowed = ["everyone", "nobody"];
+        const allowed = ["everyone", "contacts_except", "nobody"]; // ✅ updated
         if (!allowed.includes(picPrivacy))
           return res.status(400).json({ message: "Invalid picPrivacy option" });
         updateFields.picPrivacy = picPrivacy;
+      }
+
+      // ✅ NEW: picExceptList — array of userIDs
+      if (picExceptList !== undefined) {
+        if (!Array.isArray(picExceptList))
+          return res.status(400).json({ message: "picExceptList array hona chahiye" });
+        updateFields.picExceptList = picExceptList;
       }
 
       // Last Seen
@@ -142,7 +151,7 @@ export default async function handler(req, res) {
         updateFields.aboutPrivacy = aboutPrivacy;
       }
 
-      // Read Receipts (Blue ticks)
+      // Read Receipts
       if (readReceipts !== undefined) {
         updateFields.readReceipts = Boolean(readReceipts);
       }
