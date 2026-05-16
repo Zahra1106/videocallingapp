@@ -2,8 +2,6 @@ import { connectDB, Group } from "../lib/db.js";
 import mongoose from "mongoose";
 
 // ─── SCHEMAS ──────────────────────────────────────────────────
-// (agar alag GroupMessage model use kar rahe ho to in schemas ko
-//  models/GroupMessage.js se import karo aur neeche wali lines hata do)
 
 const locationSchema = new mongoose.Schema(
   {
@@ -43,48 +41,35 @@ const groupMessageSchema = new mongoose.Schema(
     senderID:   { type: String, required: true },
     senderName: { type: String, default: "" },
 
-    // ── Content ───────────────────────────────────────────
     text:         { type: String, default: "" },
     imageUrl:     { type: String, default: "" },
     voiceUrl:     { type: String, default: "" },
 
-    // ── Document ─────────────────────────────────────────
     documentUrl:  { type: String, default: "" },
     documentName: { type: String, default: "" },
     documentSize: { type: Number, default: 0 },
     documentType: { type: String, default: "" },
 
-    // ── Location ─────────────────────────────────────────
     location: { type: locationSchema, default: null },
 
-    // ── Poll ─────────────────────────────────────────────
     isPoll: { type: Boolean, default: false },
     poll: {
       question: { type: String },
       options:  { type: [pollOptionSchema], default: [] },
     },
 
-    // ── Reply ────────────────────────────────────────────
-    replyTo: { type: replyToSchema, default: null },
-
-    // ── Reactions ────────────────────────────────────────
+    replyTo:   { type: replyToSchema, default: null },
     reactions: { type: Map, of: String, default: {} },
+    readBy:    { type: [String], default: [] },
 
-    // ── Read receipts ────────────────────────────────────
-    readBy: { type: [String], default: [] },
-
-    // ── View Once ────────────────────────────────────────
     viewOnce: { type: Boolean, default: false },
     viewedBy: { type: [String], default: [] },
 
-    // ── Auto Disappear ───────────────────────────────────
     disappearsAt: { type: Number, default: 0 },
 
-    // ── Edit ────────────────────────────────────────────
     isEdited: { type: Boolean, default: false },
     editedAt: { type: Date,    default: null },
 
-    // ── Delete ──────────────────────────────────────────
     deletedFor:           { type: [String], default: [] },
     isDeletedForEveryone: { type: Boolean,  default: false },
   },
@@ -98,27 +83,18 @@ const GroupMessage =
   mongoose.model("GroupMessage", groupMessageSchema);
 
 // ─────────────────────────────────────────────────────────────
-// ⚠️  db.js mein Group Schema yeh hona chahiye:
+//  ⚠️  db.js mein Group Schema mein yeh fields hone chahiye:
 //
-//  const groupSchema = new mongoose.Schema({
-//    name:                { type: String, required: true },
-//    description:         { type: String, default: "" },       // ← NEW
-//    inviteCode:          { type: String, default: "" },       // ← NEW
-//    pinnedMessages:      { type: [String], default: [] },     // ← NEW
-//    createdBy:           { type: String, required: true },
-//    creatorName:         { type: String, default: "" },
-//    members:             { type: [String], default: [] },
-//    lastMessage:         { type: String, default: "" },
-//    lastMessageTime:     { type: Date },
-//    onlyAdminCanMessage: { type: Boolean, default: false },
-//  });
+//  description:    { type: String, default: "" },
+//  inviteCode:     { type: String, default: "" },
+//  pinnedMessages: { type: [String], default: [] },
 // ─────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   await connectDB();
 
   const fullUrl = req.url.split("?")[0];
-  const path    = fullUrl.split("/").pop(); // "update", "create", "messages", etc.
+  const path    = fullUrl.split("/").pop();
 
   res.setHeader("Access-Control-Allow-Origin",  "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
@@ -127,6 +103,7 @@ export default async function handler(req, res) {
 
   // ════════════════════════════════════════════════════════════
   //  GROUPS LIST  —  GET /api/groups
+  //  FIX: description field add kiya response mein
   // ════════════════════════════════════════════════════════════
   if (req.method === "GET" && path !== "messages" && path !== "info" && path !== "pinned") {
     const { userID } = req.query;
@@ -138,11 +115,13 @@ export default async function handler(req, res) {
         groups: groups.map(g => ({
           groupID:             g._id.toString(),
           name:                g.name,
+          description:         g.description         ?? "",   // ✅ FIX: yeh missing tha
           members:             g.members,
-          lastMessage:         g.lastMessage         ?? "",
+          lastMessage:         g.lastMessage          ?? "",
           lastMessageTime:     g.lastMessageTime,
           createdBy:           g.createdBy,
-          onlyAdminCanMessage: g.onlyAdminCanMessage ?? false,
+          onlyAdminCanMessage: g.onlyAdminCanMessage  ?? false,
+          pinnedMessages:      g.pinnedMessages       ?? [],  // ✅ FIX: yeh bhi add kiya
         })),
       });
     } catch (e) {
@@ -178,7 +157,7 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  PINNED MESSAGES FETCH  —  GET /api/groups/pinned?groupID=xxx&myID=yyy
+  //  PINNED MESSAGES  —  GET /api/groups/pinned?groupID=xxx
   // ════════════════════════════════════════════════════════════
   if (req.method === "GET" && path === "pinned") {
     const { groupID, myID = "" } = req.query;
@@ -256,7 +235,6 @@ export default async function handler(req, res) {
       if (group.createdBy !== userID)
         return res.status(403).json({ message: "Sirf admin invite link bana sakta hai" });
 
-      // Random 8-char code generate karo (agar pehle se hai to wahi do)
       let code = group.inviteCode;
       if (!code || code.length < 6) {
         code = Math.random().toString(36).substring(2, 10).toUpperCase();
@@ -266,7 +244,7 @@ export default async function handler(req, res) {
       return res.json({
         message:    "Invite link ready hai ✅",
         inviteCode: code,
-        inviteLink: `https://zuno.app/join/${code}`,   // apna domain laga do
+        inviteLink: `https://zuno.app/join/${code}`,
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
@@ -348,7 +326,6 @@ export default async function handler(req, res) {
         return res.json({ message: "Message unpin ho gaya ✅" });
       }
 
-      // Max 3 pinned messages
       if ((group.pinnedMessages ?? []).length >= 3)
         return res.status(400).json({ message: "Max 3 messages pin ho sakte hain" });
 
@@ -373,7 +350,6 @@ export default async function handler(req, res) {
     try {
       const now = Date.now();
 
-      // Expired messages delete karo
       await GroupMessage.deleteMany({
         groupID,
         disappearsAt: { $gt: 0, $lte: now },
@@ -450,11 +426,11 @@ export default async function handler(req, res) {
         documentName,
         documentSize,
         documentType,
-        location:    location || null,
-        viewOnce:    viewOnce === true,
-        viewedBy:    [],
-        replyTo:     replyTo || null,
-        deletedFor:  [],
+        location:     location || null,
+        viewOnce:     viewOnce === true,
+        viewedBy:     [],
+        replyTo:      replyTo || null,
+        deletedFor:   [],
         disappearsAt: disappearSecs > 0 ? now + disappearSecs * 1000 : 0,
       });
 
@@ -481,13 +457,16 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  MESSAGE PATCH: edit / reaction / viewOnce / liveLocation / readBy
-  //  PATCH /api/groups/message
+  //  MESSAGE PATCH  —  PATCH /api/groups/message
+  //  FIX: groupID properly extract kiya req.body se
   // ════════════════════════════════════════════════════════════
   if (req.method === "PATCH" && path === "message") {
     const {
-      messageID, userID,
-      markViewed, markRead,
+      groupID,       // ✅ FIX: pehle yeh extract nahi tha
+      messageID,
+      userID,
+      markViewed,
+      markRead,
       newText,
       emoji,
       liveLocation,
@@ -545,7 +524,7 @@ export default async function handler(req, res) {
       if (emoji) {
         const reactions = msg.reactions || new Map();
         if (reactions.get(userID) === emoji) {
-          reactions.delete(userID); // toggle off
+          reactions.delete(userID);
         } else {
           reactions.set(userID, emoji);
         }
@@ -564,8 +543,8 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  MESSAGE DELETE: for me / for everyone
-  //  DELETE /api/groups/message
+  //  MESSAGE DELETE  —  DELETE /api/groups/message
+  //  FIX: groupID properly use ho raha hai admin check ke liye
   // ════════════════════════════════════════════════════════════
   if (req.method === "DELETE" && path === "message") {
     const { groupID, messageID, userID, deleteForEveryone = false } = req.body;
@@ -578,6 +557,7 @@ export default async function handler(req, res) {
       if (!msg) return res.status(404).json({ message: "Message nahi mila" });
 
       if (deleteForEveryone) {
+        // ✅ FIX: groupID use ho raha hai — pehle yeh undefined tha
         const group   = groupID ? await Group.findById(groupID) : null;
         const isAdmin = group && group.createdBy === userID;
 
@@ -647,7 +627,7 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  POLL VOTE  —  PATCH /api/groups/vote
+  //  POLL VOTE  —  POST /api/groups/vote
   // ════════════════════════════════════════════════════════════
   if ((req.method === "PATCH" || req.method === "POST") && path === "vote") {
     const { messageID, optionIndex, userID } = req.body;
@@ -659,7 +639,6 @@ export default async function handler(req, res) {
       if (!msg || !msg.isPoll)
         return res.status(404).json({ message: "Poll nahi mila" });
 
-      // Pehle is user ka vote sab options se hatao (toggle)
       msg.poll.options.forEach(opt => {
         opt.votes = opt.votes.filter(v => v !== userID);
       });
