@@ -98,6 +98,21 @@ const GroupMessage =
   mongoose.model("GroupMessage", groupMessageSchema);
 
 // ─────────────────────────────────────────────────────────────
+// ⚠️  db.js mein Group Schema yeh hona chahiye:
+//
+//  const groupSchema = new mongoose.Schema({
+//    name:                { type: String, required: true },
+//    description:         { type: String, default: "" },       // ← NEW
+//    inviteCode:          { type: String, default: "" },       // ← NEW
+//    pinnedMessages:      { type: [String], default: [] },     // ← NEW
+//    createdBy:           { type: String, required: true },
+//    creatorName:         { type: String, default: "" },
+//    members:             { type: [String], default: [] },
+//    lastMessage:         { type: String, default: "" },
+//    lastMessageTime:     { type: Date },
+//    onlyAdminCanMessage: { type: Boolean, default: false },
+//  });
+// ─────────────────────────────────────────────────────────────
 
 export default async function handler(req, res) {
   await connectDB();
@@ -111,11 +126,9 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   // ════════════════════════════════════════════════════════════
-  //  GROUPS LIST
+  //  GROUPS LIST  —  GET /api/groups
   // ════════════════════════════════════════════════════════════
-
-  // ── GET /api/groups ─────────────────────────────────────────
-  if (req.method === "GET" && path !== "messages") {
+  if (req.method === "GET" && path !== "messages" && path !== "info" && path !== "pinned") {
     const { userID } = req.query;
     if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
@@ -138,10 +151,69 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  GROUP CREATE
+  //  GROUP INFO  —  GET /api/groups/info?groupID=xxx
   // ════════════════════════════════════════════════════════════
+  if (req.method === "GET" && path === "info") {
+    const { groupID } = req.query;
+    if (!groupID)
+      return res.status(400).json({ message: "groupID chahiye" });
 
-  // ── POST /api/groups/create ─────────────────────────────────
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+
+      return res.json({
+        groupID:             group._id.toString(),
+        name:                group.name,
+        description:         group.description         ?? "",
+        inviteCode:          group.inviteCode           ?? "",
+        members:             group.members,
+        createdBy:           group.createdBy,
+        onlyAdminCanMessage: group.onlyAdminCanMessage  ?? false,
+        pinnedMessages:      group.pinnedMessages       ?? [],
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  PINNED MESSAGES FETCH  —  GET /api/groups/pinned?groupID=xxx&myID=yyy
+  // ════════════════════════════════════════════════════════════
+  if (req.method === "GET" && path === "pinned") {
+    const { groupID, myID = "" } = req.query;
+    if (!groupID)
+      return res.status(400).json({ message: "groupID chahiye" });
+
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+
+      const pinnedIDs = group.pinnedMessages ?? [];
+      if (pinnedIDs.length === 0)
+        return res.json({ pinned: [] });
+
+      const msgs = await GroupMessage.find({
+        _id:                  { $in: pinnedIDs },
+        isDeletedForEveryone: { $ne: true },
+      });
+
+      const result = msgs
+        .filter(m => !m.deletedFor.includes(myID))
+        .map(m => ({
+          ...m.toObject(),
+          reactions: m.reactions ? Object.fromEntries(m.reactions) : {},
+        }));
+
+      return res.json({ pinned: result });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  GROUP CREATE  —  POST /api/groups/create
+  // ════════════════════════════════════════════════════════════
   if (req.method === "POST" && path === "create") {
     const { name, creatorID, creatorName, members } = req.body;
     if (!name || !creatorID || !members?.length)
@@ -156,6 +228,9 @@ export default async function handler(req, res) {
         lastMessage:         "",
         lastMessageTime:     new Date(),
         onlyAdminCanMessage: false,
+        description:         "",
+        inviteCode:          "",
+        pinnedMessages:      [],
       });
       return res.status(201).json({
         message: "Group ban gaya ✅",
@@ -168,10 +243,129 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  MESSAGES FETCH
+  //  INVITE LINK — GENERATE  —  POST /api/groups/invite
   // ════════════════════════════════════════════════════════════
+  if (req.method === "POST" && path === "invite") {
+    const { groupID, userID } = req.body;
+    if (!groupID || !userID)
+      return res.status(400).json({ message: "groupID aur userID chahiye" });
 
-  // ── GET /api/groups/messages ────────────────────────────────
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+      if (group.createdBy !== userID)
+        return res.status(403).json({ message: "Sirf admin invite link bana sakta hai" });
+
+      // Random 8-char code generate karo (agar pehle se hai to wahi do)
+      let code = group.inviteCode;
+      if (!code || code.length < 6) {
+        code = Math.random().toString(36).substring(2, 10).toUpperCase();
+        await Group.findByIdAndUpdate(groupID, { $set: { inviteCode: code } });
+      }
+
+      return res.json({
+        message:    "Invite link ready hai ✅",
+        inviteCode: code,
+        inviteLink: `https://zuno.app/join/${code}`,   // apna domain laga do
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  INVITE LINK — JOIN  —  POST /api/groups/join
+  // ════════════════════════════════════════════════════════════
+  if (req.method === "POST" && path === "join") {
+    const { inviteCode, userID } = req.body;
+    if (!inviteCode || !userID)
+      return res.status(400).json({ message: "inviteCode aur userID chahiye" });
+
+    try {
+      const group = await Group.findOne({ inviteCode: inviteCode.trim().toUpperCase() });
+      if (!group) return res.status(404).json({ message: "Galat ya expired invite code" });
+
+      if (group.members.includes(userID))
+        return res.status(400).json({ message: "Aap pehle se is group mein hain" });
+
+      await Group.findByIdAndUpdate(group._id, { $push: { members: userID } });
+
+      return res.json({
+        message: "Group join ho gaya ✅",
+        groupID: group._id.toString(),
+        name:    group.name,
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  INVITE CODE RESET  —  DELETE /api/groups/invite
+  // ════════════════════════════════════════════════════════════
+  if (req.method === "DELETE" && path === "invite") {
+    const { groupID, userID } = req.body;
+    if (!groupID || !userID)
+      return res.status(400).json({ message: "groupID aur userID chahiye" });
+
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+      if (group.createdBy !== userID)
+        return res.status(403).json({ message: "Sirf admin reset kar sakta hai" });
+
+      const newCode = Math.random().toString(36).substring(2, 10).toUpperCase();
+      await Group.findByIdAndUpdate(groupID, { $set: { inviteCode: newCode } });
+
+      return res.json({
+        message:    "Invite code reset ho gaya ✅",
+        inviteCode: newCode,
+        inviteLink: `https://zuno.app/join/${newCode}`,
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  PIN / UNPIN MESSAGE  —  PATCH /api/groups/pin
+  // ════════════════════════════════════════════════════════════
+  if (req.method === "PATCH" && path === "pin") {
+    const { groupID, messageID, userID, unpin = false } = req.body;
+    if (!groupID || !messageID || !userID)
+      return res.status(400).json({ message: "groupID, messageID, userID chahiye" });
+
+    try {
+      const group = await Group.findById(groupID);
+      if (!group) return res.status(404).json({ message: "Group nahi mila" });
+      if (group.createdBy !== userID)
+        return res.status(403).json({ message: "Sirf admin message pin kar sakta hai" });
+
+      if (unpin) {
+        await Group.findByIdAndUpdate(groupID, {
+          $pull: { pinnedMessages: messageID },
+        });
+        return res.json({ message: "Message unpin ho gaya ✅" });
+      }
+
+      // Max 3 pinned messages
+      if ((group.pinnedMessages ?? []).length >= 3)
+        return res.status(400).json({ message: "Max 3 messages pin ho sakte hain" });
+
+      if (!(group.pinnedMessages ?? []).includes(messageID)) {
+        await Group.findByIdAndUpdate(groupID, {
+          $push: { pinnedMessages: messageID },
+        });
+      }
+      return res.json({ message: "Message pin ho gaya ✅" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════════
+  //  MESSAGES FETCH  —  GET /api/groups/messages
+  // ════════════════════════════════════════════════════════════
   if (req.method === "GET" && path === "messages") {
     const { groupID, myID = "" } = req.query;
     if (!groupID) return res.status(400).json({ message: "groupID chahiye" });
@@ -206,10 +400,8 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  MESSAGE SEND
+  //  MESSAGE SEND  —  POST /api/groups/message
   // ════════════════════════════════════════════════════════════
-
-  // ── POST /api/groups/message ────────────────────────────────
   if (req.method === "POST" && path === "message") {
     const {
       groupID,
@@ -266,7 +458,6 @@ export default async function handler(req, res) {
         disappearsAt: disappearSecs > 0 ? now + disappearSecs * 1000 : 0,
       });
 
-      // Group ka lastMessage update karo
       const preview = text?.trim()
         || (imageUrl    ? "📷 Image"    : "")
         || (voiceUrl    ? "🎤 Voice"    : "")
@@ -277,7 +468,6 @@ export default async function handler(req, res) {
         $set: { lastMessage: preview, lastMessageTime: new Date() },
       });
 
-      // Auto-delete schedule
       if (disappearSecs > 0) {
         setTimeout(async () => {
           try { await GroupMessage.findByIdAndDelete(msg._id); } catch (_) {}
@@ -292,9 +482,8 @@ export default async function handler(req, res) {
 
   // ════════════════════════════════════════════════════════════
   //  MESSAGE PATCH: edit / reaction / viewOnce / liveLocation / readBy
+  //  PATCH /api/groups/message
   // ════════════════════════════════════════════════════════════
-
-  // ── PATCH /api/groups/message ────────────────────────────────
   if (req.method === "PATCH" && path === "message") {
     const {
       messageID, userID,
@@ -376,9 +565,8 @@ export default async function handler(req, res) {
 
   // ════════════════════════════════════════════════════════════
   //  MESSAGE DELETE: for me / for everyone
+  //  DELETE /api/groups/message
   // ════════════════════════════════════════════════════════════
-
-  // ── DELETE /api/groups/message ──────────────────────────────
   if (req.method === "DELETE" && path === "message") {
     const { groupID, messageID, userID, deleteForEveryone = false } = req.body;
 
@@ -390,7 +578,6 @@ export default async function handler(req, res) {
       if (!msg) return res.status(404).json({ message: "Message nahi mila" });
 
       if (deleteForEveryone) {
-        // Sender ya group admin delete kar sakta hai
         const group   = groupID ? await Group.findById(groupID) : null;
         const isAdmin = group && group.createdBy === userID;
 
@@ -420,10 +607,8 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  POLL
+  //  POLL CREATE  —  POST /api/groups/poll
   // ════════════════════════════════════════════════════════════
-
-  // ── POST /api/groups/poll ────────────────────────────────────
   if (req.method === "POST" && path === "poll") {
     const { groupID, senderID, senderName, question, options } = req.body;
     if (!groupID || !senderID || !question || !options?.length)
@@ -461,7 +646,9 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── PATCH/POST /api/groups/vote ─────────────────────────────
+  // ════════════════════════════════════════════════════════════
+  //  POLL VOTE  —  PATCH /api/groups/vote
+  // ════════════════════════════════════════════════════════════
   if ((req.method === "PATCH" || req.method === "POST") && path === "vote") {
     const { messageID, optionIndex, userID } = req.body;
     if (!messageID || optionIndex === undefined || !userID)
@@ -489,12 +676,10 @@ export default async function handler(req, res) {
   }
 
   // ════════════════════════════════════════════════════════════
-  //  GROUP UPDATE
+  //  GROUP UPDATE  —  PATCH /api/groups/update
   // ════════════════════════════════════════════════════════════
-
-  // ── PATCH /api/groups/update ────────────────────────────────
   if (req.method === "PATCH" && path === "update") {
-    const { groupID, userID, name, action, targetUserID, onlyAdminCanMessage } = req.body;
+    const { groupID, userID, name, action, targetUserID, onlyAdminCanMessage, description } = req.body;
 
     if (!groupID || !userID)
       return res.status(400).json({ message: "groupID aur userID chahiye" });
@@ -516,7 +701,7 @@ export default async function handler(req, res) {
       if (group.createdBy !== userID)
         return res.status(403).json({ message: "Sirf admin yeh kar sakta hai" });
 
-      // ── Add member ──────────────────────────────────────────
+      // ── Add Member ──────────────────────────────────────────
       if (action === "addMember") {
         if (!targetUserID)
           return res.status(400).json({ message: "targetUserID chahiye" });
@@ -527,7 +712,7 @@ export default async function handler(req, res) {
         return res.json({ message: "Member add ho gaya ✅" });
       }
 
-      // ── Remove member ───────────────────────────────────────
+      // ── Remove Member ───────────────────────────────────────
       if (action === "removeMember") {
         if (!targetUserID)
           return res.status(400).json({ message: "targetUserID chahiye" });
@@ -536,7 +721,7 @@ export default async function handler(req, res) {
         return res.json({ message: "Member remove ho gaya ✅" });
       }
 
-      // ── Privacy toggle ──────────────────────────────────────
+      // ── Privacy Toggle ──────────────────────────────────────
       if (action === "privacy") {
         if (onlyAdminCanMessage === undefined)
           return res.status(400).json({ message: "onlyAdminCanMessage chahiye" });
@@ -547,7 +732,14 @@ export default async function handler(req, res) {
         return res.json({ message: "Privacy update ho gayi ✅" });
       }
 
-      // ── Update name ─────────────────────────────────────────
+      // ── Update Description ──────────────────────────────────
+      if (action === "updateDesc") {
+        const desc = (description ?? "").trim();
+        await Group.findByIdAndUpdate(groupID, { $set: { description: desc } });
+        return res.json({ message: "Description update ho gayi ✅" });
+      }
+
+      // ── Update Name ─────────────────────────────────────────
       if (action === "updateName" || name) {
         const newName = name?.trim();
         if (!newName)
