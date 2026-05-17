@@ -19,37 +19,33 @@ export default async function handler(req, res) {
         ? { _id: { $ne: new mongoose.Types.ObjectId(currentUserID) } }
         : {};
 
-      // ✅ Privacy fields bhi fetch karo
+      // ✅ Privacy fields + customNotification bhi fetch karo
       const users = await User.find(query, {
-        name:            1,
-        email:           1,
-        image:           1,
-        isOnline:        1,
-        lastSeenTime:    1,   // ✅ renamed from lastSeen
-        picPrivacy:      1,
-        lastSeenPrivacy: 1,
-        hideOnline:      1,
-        aboutPrivacy:    1,
+        name:               1,
+        email:              1,
+        image:              1,
+        isOnline:           1,
+        lastSeenTime:       1,
+        picPrivacy:         1,
+        lastSeenPrivacy:    1,
+        hideOnline:         1,
+        aboutPrivacy:       1,
+        customNotification: 1,  // ✅ Custom notification field
       });
 
       const userList = users.map(u => {
         // ── Profile Photo Privacy ───────────────────────────
-        // "nobody" = image nahi dikhani kisi ko bhi
         const imageToShow =
           u.picPrivacy === "nobody" ? "" : (u.image ?? "");
 
         // ── Online Status Privacy ───────────────────────────
-        // hideOnline = true → hamesha false dikhao
         const onlineToShow = u.hideOnline ? false : (u.isOnline ?? false);
 
         // ── Last Seen Privacy ───────────────────────────────
-        // "nobody"   → null dikhao
-        // "everyone" → actual time dikhao
         let lastSeenToShow = null;
         if (u.lastSeenPrivacy === "everyone") {
           lastSeenToShow = u.lastSeenTime ?? null;
         }
-        // "nobody" ya kuch aur → null rahega
 
         return {
           uid:      u._id.toString(),
@@ -58,6 +54,12 @@ export default async function handler(req, res) {
           image:    imageToShow,
           isOnline: onlineToShow,
           lastSeen: lastSeenToShow,
+          // ✅ Custom notification setting return karo
+          customNotification: u.customNotification ?? {
+            tone:    "default",
+            vibrate: true,
+            muted:   false,
+          },
         };
       });
 
@@ -67,17 +69,29 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── POST — online status + lastSeenTime update ───────────────
+  // ── POST — online status + lastSeenTime + customNotification update ──
   if (req.method === "POST") {
     try {
-      const { userID, isOnline, fcmToken } = req.body;
+      const { userID, isOnline, fcmToken, customNotification } = req.body;
       if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
       const update = { isOnline };
+
+      // ✅ FCM Token update
       if (fcmToken) update.fcmToken = fcmToken;
 
-      // ✅ lastSeen → lastSeenTime (renamed)
+      // ✅ Last seen time
       if (!isOnline) update.lastSeenTime = new Date();
+
+      // ✅ Custom notification setting save karo
+      // Format: { tone: "default", vibrate: true, muted: false }
+      if (customNotification !== undefined) {
+        update.customNotification = {
+          tone:    customNotification.tone    ?? "default",
+          vibrate: customNotification.vibrate ?? true,
+          muted:   customNotification.muted   ?? false,
+        };
+      }
 
       await User.findByIdAndUpdate(userID, update);
       return res.status(200).json({ message: "Status update ho gaya" });
