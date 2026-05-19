@@ -1,5 +1,5 @@
 // api/communication.js
-import { connectDB, User } from "../lib/db.js";  // ✅ User import add kiya
+import { connectDB, User } from "../lib/db.js";
 import mongoose from "mongoose";
 
 // ─── SCHEMAS ──────────────────────────────────────────────────────
@@ -39,23 +39,28 @@ const scheduleSchema = new mongoose.Schema({
   createdAt:   { type: Date,   default: Date.now },
 });
 
-const CallLog  = mongoose.models.CallLogs || mongoose.model("CallLogs", callLogSchema);
-const Schedule = mongoose.models.Schedule || mongoose.model("Schedule", scheduleSchema);
+// ─── NEW: COMPANION SESSION SCHEMA ────────────────────────────────
+const companionSessionSchema = new mongoose.Schema({
+  token:       { type: String,  required: true, unique: true },
+  userID:      { type: String,  required: true },
+  status:      { type: String,  enum: ["pending", "approved", "revoked"], default: "pending" },
+  deviceInfo:  { type: Object,  default: {} },
+  expiresAt:   { type: Date,    required: true },
+  linkedAt:    { type: Date,    default: null },
+  lastActive:  { type: Date,    default: null },
+  createdAt:   { type: Date,    default: Date.now },
+});
+
+const CallLog  = mongoose.models.CallLogs         || mongoose.model("CallLogs",         callLogSchema);
+const Schedule = mongoose.models.Schedule         || mongoose.model("Schedule",         scheduleSchema);
+const CompanionSession = mongoose.models.CompanionSession || mongoose.model("CompanionSession", companionSessionSchema);
 
 // ─── HELPER: Silence Unknown Callers check ────────────────────────
-// callerID = jo call kar raha hai
-// receiverID = jis ko call ja rahi hai
 async function isSilenced(callerID, receiverID) {
   try {
-    const receiver = await User.findById(receiverID, {
-      silenceUnknown: 1,
-    });
-
+    const receiver = await User.findById(receiverID, { silenceUnknown: 1 });
     if (!receiver || !receiver.silenceUnknown) return false;
 
-    // Check: kya caller receiver ke contacts mein hai?
-    // Contacts = jis se pehle chat hua ho (ChatLog se check kar sakte hain)
-    // Simple approach: agar callerID receiver ke kisi bhi call log mein hai
     const prevContact = await CallLog.findOne({
       $or: [
         { callerID: receiverID, calleeID: callerID },
@@ -63,14 +68,16 @@ async function isSilenced(callerID, receiverID) {
       ],
     });
 
-    // Agar pehle baat hui hai to known contact hai
     if (prevContact) return false;
-
-    // Unknown caller — silence karo
     return true;
   } catch (_) {
     return false;
   }
+}
+
+// ─── HELPER: Random token generate karo ───────────────────────────
+function generateToken() {
+  return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
 // ─── HANDLER ──────────────────────────────────────────────────────
@@ -91,7 +98,6 @@ export default async function handler(req, res) {
   //  CALL LOGS
   // ════════════════════════════════════════════════════════════
 
-  // ── POST /api/communication/calllogs — naya log save karo ───
   if (req.method === "POST" && path === "calllogs") {
     const {
       callID, callerID, callerName,
@@ -104,14 +110,12 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "Sab required fields bharo" });
 
     try {
-      // ✅ SILENCE UNKNOWN CALLERS CHECK
       const silenced = await isSilenced(callerID, calleeID);
       if (silenced) {
-        // Log to save karo (missed call) lekin notify nahi karo
         await CallLog.create({
           callID, callerID, callerName,
           calleeID, calleeName,
-          type:         "missed",   // force missed
+          type:         "missed",
           callType:     callType     ?? "audio",
           duration:     0,
           endedAt:      null,
@@ -142,7 +146,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── GET /api/communication/calllogs?userID=xxx ──────────────
   if (req.method === "GET" && path === "calllogs") {
     const { userID, type, callType, limit = 50 } = req.query;
     if (!userID)
@@ -183,7 +186,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── DELETE /api/communication/calllogs — log delete karo ────
   if (req.method === "DELETE" && path === "calllogs") {
     const { callLogID, userID } = req.body;
 
@@ -209,7 +211,6 @@ export default async function handler(req, res) {
   //  SCHEDULE
   // ════════════════════════════════════════════════════════════
 
-  // ── POST /api/communication/create — naya schedule banao ────
   if (req.method === "POST" && path === "create") {
     const {
       callerID, callerName,
@@ -222,11 +223,10 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "callerID, calleeID, scheduledAt chahiye" });
 
     try {
-      // ✅ SILENCE CHECK — schedule bhi block karo agar silenced hai
       const silenced = await isSilenced(callerID, calleeID);
       if (silenced) {
         return res.status(403).json({
-          message:  "Receiver unknown calls silence karta hai, schedule nahi ho sakta 🔕",
+          message:  "Receiver unknown calls silence karta hai 🔕",
           silenced: true,
         });
       }
@@ -251,7 +251,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── GET /api/communication/schedule?userID=xxx ──────────────
   if (req.method === "GET" && path === "schedule") {
     const { userID, status, includePast } = req.query;
     if (!userID)
@@ -278,7 +277,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── PATCH /api/communication/schedule — update karo ─────────
   if (req.method === "PATCH" && path === "schedule") {
     const {
       scheduleID, userID,
@@ -294,7 +292,6 @@ export default async function handler(req, res) {
       if (!doc)
         return res.status(404).json({ message: "Schedule nahi mila" });
 
-      // ✅ FIXED: placeholder code hata diya, proper check lagaya
       if (doc.callerID !== userID && doc.calleeID !== userID)
         return res.status(403).json({ message: "Aap is schedule ko update nahi kar sakte" });
 
@@ -306,7 +303,7 @@ export default async function handler(req, res) {
       if (status) {
         const allowed = ["pending", "confirmed", "cancelled"];
         if (!allowed.includes(status))
-          return res.status(400).json({ message: "Status galat hai (pending/confirmed/cancelled)" });
+          return res.status(400).json({ message: "Status galat hai" });
         doc.status = status;
       }
 
@@ -319,7 +316,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── DELETE /api/communication/delete — schedule hatao ───────
   if (req.method === "DELETE" && path === "delete") {
     const { scheduleID, userID } = req.body;
 
@@ -341,7 +337,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── GET /api/communication/reminders?userID=xxx ─────────────
   if (req.method === "GET" && path === "reminders") {
     const { userID } = req.query;
     if (!userID)
@@ -349,7 +344,6 @@ export default async function handler(req, res) {
 
     try {
       const now = new Date();
-
       const upcoming = await Schedule.find({
         $or:        [{ callerID: userID }, { calleeID: userID }],
         status:     { $ne: "cancelled" },
@@ -366,7 +360,6 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── PATCH /api/communication/notified — remind mark karo ────
   if (req.method === "PATCH" && path === "notified") {
     const { scheduleID } = req.body;
     if (!scheduleID)
@@ -380,7 +373,160 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── 404 ─────────────────────────────────────────────────────
+  // ════════════════════════════════════════════════════════════
+  //  COMPANION MODE — naya section
+  // ════════════════════════════════════════════════════════════
+
+  // ── POST /api/communication/companion-generate ───────────────
+  // Primary device: QR ke liye session token banao
+  if (req.method === "POST" && path === "companion-generate") {
+    const { userID } = req.body;
+
+    if (!userID)
+      return res.status(400).json({ message: "userID chahiye" });
+
+    try {
+      // Purani pending sessions expire karo is user ki
+      await CompanionSession.deleteMany({
+        userID,
+        status: "pending",
+        expiresAt: { $lt: new Date() },
+      });
+
+      const token     = generateToken();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 min
+
+      await CompanionSession.create({ token, userID, expiresAt });
+
+      return res.status(201).json({
+        message: "Session token ban gaya ✅",
+        token,
+        expiresAt,
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── POST /api/communication/companion-verify ─────────────────
+  // Secondary device: QR scan karke link karo
+  if (req.method === "POST" && path === "companion-verify") {
+    const { token, deviceInfo } = req.body;
+
+    if (!token)
+      return res.status(400).json({ message: "token chahiye" });
+
+    try {
+      const session = await CompanionSession.findOne({ token });
+
+      if (!session)
+        return res.status(404).json({ message: "Session nahi mili" });
+
+      if (session.status === "revoked")
+        return res.status(410).json({ message: "Yeh session revoke ho chuka hai" });
+
+      if (session.status === "approved")
+        return res.status(409).json({ message: "Yeh session pehle se approved hai" });
+
+      if (new Date() > session.expiresAt)
+        return res.status(410).json({ message: "Session expire ho gayi, dobara QR scan karo" });
+
+      // Approve karo
+      session.status     = "approved";
+      session.deviceInfo = deviceInfo ?? {};
+      session.linkedAt   = new Date();
+      session.lastActive = new Date();
+      await session.save();
+
+      // User info bhi bhejo
+      const user = await User.findById(session.userID, { name: 1, email: 1, image: 1 });
+
+      return res.status(200).json({
+        message: "Device link ho gaya ✅",
+        token,
+        userID:   session.userID,
+        userName: user?.name  ?? "",
+        email:    user?.email ?? "",
+        image:    user?.image ?? "",
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── GET /api/communication/companion-devices?userID=xxx ──────
+  // Linked devices ki list dekho
+  if (req.method === "GET" && path === "companion-devices") {
+    const { userID } = req.query;
+
+    if (!userID)
+      return res.status(400).json({ message: "userID chahiye" });
+
+    try {
+      const devices = await CompanionSession.find({
+        userID,
+        status: "approved",
+      }).sort({ linkedAt: -1 });
+
+      return res.status(200).json({
+        devices: devices.map(d => ({
+          token:      d.token,
+          deviceInfo: d.deviceInfo,
+          linkedAt:   d.linkedAt,
+          lastActive: d.lastActive,
+        })),
+      });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── DELETE /api/communication/companion-unlink ────────────────
+  // Device unlink karo
+  if (req.method === "DELETE" && path === "companion-unlink") {
+    const { token, userID } = req.body;
+
+    if (!token || !userID)
+      return res.status(400).json({ message: "token aur userID chahiye" });
+
+    try {
+      const session = await CompanionSession.findOne({ token });
+
+      if (!session)
+        return res.status(404).json({ message: "Session nahi mili" });
+
+      if (session.userID !== userID)
+        return res.status(403).json({ message: "Aap is device ko unlink nahi kar sakte" });
+
+      session.status = "revoked";
+      await session.save();
+
+      return res.status(200).json({ message: "Device unlink ho gaya ✅" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── PATCH /api/communication/companion-active ─────────────────
+  // Device ka lastActive update karo (heartbeat)
+  if (req.method === "PATCH" && path === "companion-active") {
+    const { token } = req.body;
+
+    if (!token)
+      return res.status(400).json({ message: "token chahiye" });
+
+    try {
+      await CompanionSession.findOneAndUpdate(
+        { token, status: "approved" },
+        { lastActive: new Date() }
+      );
+      return res.status(200).json({ message: "Active update ho gaya ✅" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── 404 ──────────────────────────────────────────────────────
   return res.status(404).json({
     message: "Route nahi mila",
     method:  req.method,

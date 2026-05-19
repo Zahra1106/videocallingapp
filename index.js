@@ -63,6 +63,12 @@ app.all("/api/communication/schedule",  communicationHandler); // schedule fetch
 app.all("/api/communication/delete",    communicationHandler); // schedule delete
 app.all("/api/communication/reminders", communicationHandler); // ✅ naya: upcoming reminders
 app.all("/api/communication/notified",  communicationHandler); // ✅ naya: notified mark
+// ── Companion Mode ────────────────────────────────────────────
+app.all("/api/communication/companion-generate", communicationHandler);
+app.all("/api/communication/companion-verify",   communicationHandler);
+app.all("/api/communication/companion-devices",  communicationHandler);
+app.all("/api/communication/companion-unlink",   communicationHandler);
+app.all("/api/communication/companion-active",   communicationHandler);
 
 // ── Favourites ────────────────────────────────────────────────
 app.all("/api/favourites",        favouritesHandler);
