@@ -7,6 +7,9 @@ import cors from "cors";
 import { connectDB } from "./lib/db.js";
 // ── Status import ─────────────────────────────────────────────
 import statusHandler from "./api/status.js";  // ← add karo upar imports mein
+import admin from "firebase-admin";
+import serviceAccount from "./serviceAccountKey.json" assert { type: "json" };
+
 
 // ── Routes import ─────────────────────────────────────────────
 import signupHandler        from "./api/signup.js";
@@ -19,6 +22,11 @@ import communicationHandler from "./api/communication.js";
 import favouritesHandler    from "./api/favourites.js";
 
 const app = express();
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount),
+  });
+}
 
 app.use(cors());
 app.use(express.json());
@@ -69,6 +77,8 @@ app.all("/api/communication/companion-verify",   communicationHandler);
 app.all("/api/communication/companion-devices",  communicationHandler);
 app.all("/api/communication/companion-unlink",   communicationHandler);
 app.all("/api/communication/companion-active",   communicationHandler);
+// ── Call Notification (FCM) ───────────────────────────────────
+app.all("/api/communication/notify-call", communicationHandler); // ✅ naya
 
 // ── Favourites ────────────────────────────────────────────────
 app.all("/api/favourites",        favouritesHandler);
