@@ -12,8 +12,19 @@ export default async function handler(req, res) {
 
   // ── GET — users list ─────────────────────────────────────────
   if (req.method === "GET") {
+
     try {
       const { currentUserID } = req.query;
+
+    // ── AUTO CLEANUP: 2 min se zyada inactive users offline karo ──
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+    await User.updateMany(
+      {
+        isOnline: true,
+        lastSeenTime: { $lt: twoMinutesAgo },
+      },
+      { isOnline: false }
+    );
 
       const query = mongoose.Types.ObjectId.isValid(currentUserID)
         ? { _id: { $ne: new mongoose.Types.ObjectId(currentUserID) } }
