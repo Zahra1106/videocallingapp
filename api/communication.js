@@ -2,7 +2,7 @@ import { connectDB, User } from "../lib/db.js";
 import mongoose from "mongoose";
 import fetch from "node-fetch"; // npm install node-fetch
 
-// ─── SCHEMAS (same rahenge) ───────────────────────────────────
+// ─── SCHEMAS ─────────────────────────────────────────────────
 
 const callLogSchema = new mongoose.Schema({
   callID:       { type: String,   required: true },
@@ -12,6 +12,8 @@ const callLogSchema = new mongoose.Schema({
   calleeName:   { type: String,   required: true },
   type:         { type: String,   enum: ["incoming", "outgoing", "missed"], required: true },
   callType:     { type: String,   enum: ["audio", "video"], default: "audio" },
+  // ✅ NEW: Call ka current status track karne ke liye
+  status:       { type: String,   enum: ["ringing", "accepted", "declined", "missed", "ended"], default: "ringing" },
   duration:     { type: Number,   default: 0 },
   startedAt:    { type: Date,     default: Date.now },
   endedAt:      { type: Date,     default: null },
@@ -124,6 +126,7 @@ export default async function handler(req, res) {
         await CallLog.create({
           callID, callerID, callerName, calleeID, calleeName,
           type: "missed", callType: callType ?? "audio",
+          status: "missed",
           duration: 0, endedAt: null,
           isGroupCall: isGroupCall ?? false,
           participants: participants ?? [],
@@ -135,6 +138,7 @@ export default async function handler(req, res) {
       const log = await CallLog.create({
         callID, callerID, callerName, calleeID, calleeName,
         type, callType: callType ?? "audio",
+        status: "ringing",
         duration: duration ?? 0,
         endedAt:  endedAt ? new Date(endedAt) : null,
         isGroupCall:  isGroupCall  ?? false,
@@ -163,6 +167,7 @@ export default async function handler(req, res) {
           callerID: l.callerID, callerName: l.callerName,
           calleeID: l.calleeID, calleeName: l.calleeName,
           type: l.type, callType: l.callType,
+          status: l.status,
           duration: l.duration, startedAt: l.startedAt,
           endedAt: l.endedAt, isGroupCall: l.isGroupCall,
           participants: l.participants, recordingUrl: l.recordingUrl,
@@ -192,9 +197,10 @@ export default async function handler(req, res) {
   }
 
   // ── NOTIFY CALL (Expo Push) ───────────────────────────────
+  // ✅ UPDATED: Ab CallLog bhi save hoga status: 'ringing' ke saath
 
   if (req.method === "POST" && path === "notify-call") {
-    const { callerID, callerName, calleeID, callID } = req.body;
+    const { callerID, callerName, calleeID, calleeName, callID, callType } = req.body;
 
     if (!callerID || !calleeID || !callID)
       return res.status(400).json({ message: "callerID, calleeID, callID chahiye" });
@@ -204,6 +210,25 @@ export default async function handler(req, res) {
 
       if (!receiver || !receiver.expoPushToken)
         return res.status(404).json({ message: "Receiver ka Expo push token nahi mila" });
+
+      // ✅ CallLog save karo status: 'ringing' ke saath
+      await CallLog.findOneAndUpdate(
+        { callID },
+        {
+          $setOnInsert: {
+            callID,
+            callerID,
+            callerName:  callerName  ?? "Unknown",
+            calleeID,
+            calleeName:  calleeName  ?? receiver.name ?? "Unknown",
+            type:        "incoming",
+            callType:    callType    ?? "audio",
+            status:      "ringing",
+            startedAt:   new Date(),
+          },
+        },
+        { upsert: true, new: true }
+      );
 
       await sendExpoPushNotification({
         expoPushToken: receiver.expoPushToken,
@@ -220,6 +245,43 @@ export default async function handler(req, res) {
       return res.status(200).json({ message: "Call notification bhej di ✅" });
     } catch (e) {
       return res.status(500).json({ message: "Expo Push error", error: e.message });
+    }
+  }
+
+  // ── PENDING CALL (Flutter polling) ───────────────────────
+  // ✅ NEW: Flutter har 5 sec mein yeh hit karta hai
+
+  if (req.method === "GET" && path === "pending-call") {
+    const { userID } = req.query;
+    if (!userID) return res.status(400).json({ message: "userID chahiye" });
+
+    try {
+      // Sirf last 30 sec ki ringing calls check karo
+      const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
+      const pendingCall = await CallLog.findOne({
+        calleeID:  userID,
+        status:    "ringing",
+        startedAt: { $gte: thirtySecondsAgo },
+      }).sort({ startedAt: -1 });
+
+      if (!pendingCall)
+        return res.status(200).json({ hasPendingCall: false });
+
+      return res.status(200).json({
+        hasPendingCall: true,
+        call: {
+          callID:     pendingCall.callID,
+          callerID:   pendingCall.callerID,
+          callerName: pendingCall.callerName,
+          calleeID:   pendingCall.calleeID,
+          calleeName: pendingCall.calleeName,
+          callType:   pendingCall.callType,
+          startedAt:  pendingCall.startedAt,
+        },
+      });
+    } catch (e) {
+      console.error("[pending-call] Error:", e);
+      return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
@@ -369,8 +431,8 @@ export default async function handler(req, res) {
 
     try {
       const session = await CompanionSession.findOne({ token });
-      if (!session)                    return res.status(404).json({ message: "Session nahi mili" });
-      if (session.status === "revoked") return res.status(410).json({ message: "Yeh session revoke ho chuka hai" });
+      if (!session)                     return res.status(404).json({ message: "Session nahi mili" });
+      if (session.status === "revoked")  return res.status(410).json({ message: "Yeh session revoke ho chuka hai" });
       if (session.status === "approved") return res.status(409).json({ message: "Yeh session pehle se approved hai" });
       if (new Date() > session.expiresAt) return res.status(410).json({ message: "Session expire ho gayi, dobara QR scan karo" });
 
