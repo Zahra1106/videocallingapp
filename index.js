@@ -85,6 +85,11 @@ app.all("/api/status/react",    statusHandler);
 app.all("/api/status/view",     statusHandler);
 app.all("/api/status/privacy",  statusHandler);
 app.all("/api/chat/savemeta",    chatHandler);
+// Block + Agora Token
+app.all("/api/agora-token", blockRoutesHandler);
+app.all("/api/block",       blockRoutesHandler);
+app.all("/api/blocklist",   blockRoutesHandler);
+app.all("/api/blockcheck",  blockRoutesHandler);
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/", (req, res) => {

@@ -1,110 +1,129 @@
-// ─────────────────────────────────────────────────────────────
-//  blockRoutes.js  —  Express routes for Block Feature
-//  
-//  Setup:
-//    app.use('/api/block', require('./blockRoutes'));
-// ─────────────────────────────────────────────────────────────
+import { connectDB } from "../lib/db.js";
+import mongoose from "mongoose";
+import { RtcTokenBuilder, RtcRole } from "agora-access-token";
 
-const express = require('express');
-const router  = express.Router();
-const Block   = require('./BlockModel'); // neeche model bhi hai
+// ─── Block Schema ─────────────────────────────────────────────
+const blockSchema = new mongoose.Schema({
+  blockerID: { type: String, required: true },
+  blockedID: { type: String, required: true },
+  blockedAt: { type: Date,   default: Date.now },
+});
+blockSchema.index({ blockerID: 1, blockedID: 1 }, { unique: true });
+const Block = mongoose.models.Block || mongoose.model("Block", blockSchema);
 
-// ── BLOCK KARO ────────────────────────────────────────────────
-// POST /api/block
-// Body: { blockerID, blockedID }
-router.post('/', async (req, res) => {
-  try {
+// ─── MAIN HANDLER ─────────────────────────────────────────────
+export default async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin",  "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  await connectDB();
+
+  const fullUrl = req.url.split("?")[0].replace(/\/$/, "");
+  const path    = fullUrl.split("/").filter(Boolean).pop();
+
+  // ════════════════════════════════════════════════════════
+  //  AGORA TOKEN GENERATE
+  // ════════════════════════════════════════════════════════
+
+  if (req.method === "POST" && path === "agora-token") {
+    const { channelName, uid } = req.body;
+
+    if (!channelName || uid === undefined)
+      return res.status(400).json({ message: "channelName aur uid chahiye" });
+
+    try {
+      const appID      = process.env.AGORA_APP_ID;
+      const appCert    = process.env.AGORA_APP_CERTIFICATE;
+      const expireTime = 86400; // 1 hour
+      const currentTime   = Math.floor(Date.now() / 1000);
+      const privilegeExpireTime = currentTime + expireTime;
+
+      const token = RtcTokenBuilder.buildTokenWithUid(
+        appID,
+        appCert,
+        channelName,
+        uid,
+        RtcRole.PUBLISHER,
+        privilegeExpireTime
+      );
+
+      return res.status(200).json({ token, appID });
+    } catch (e) {
+      return res.status(500).json({ message: "Token error", error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════
+  //  BLOCK KARO
+  // ════════════════════════════════════════════════════════
+
+  if (req.method === "POST" && path === "block") {
     const { blockerID, blockedID } = req.body;
     if (!blockerID || !blockedID)
       return res.status(400).json({ error: "IDs required" });
 
-    // Already blocked? duplicate nahi banao
-    const exists = await Block.findOne({ blockerID, blockedID });
-    if (exists) return res.json({ message: "Already blocked" });
-
-    await Block.create({ blockerID, blockedID });
-    res.json({ message: "Blocked successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    try {
+      const exists = await Block.findOne({ blockerID, blockedID });
+      if (exists) return res.json({ message: "Already blocked" });
+      await Block.create({ blockerID, blockedID });
+      return res.json({ message: "Blocked successfully ✅" });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
-});
 
-// ── UNBLOCK KARO ──────────────────────────────────────────────
-// DELETE /api/block
-// Body: { blockerID, blockedID }
-router.delete('/', async (req, res) => {
-  try {
+  // ════════════════════════════════════════════════════════
+  //  UNBLOCK KARO
+  // ════════════════════════════════════════════════════════
+
+  if (req.method === "DELETE" && path === "block") {
     const { blockerID, blockedID } = req.body;
-    await Block.deleteOne({ blockerID, blockedID });
-    res.json({ message: "Unblocked successfully" });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+    if (!blockerID || !blockedID)
+      return res.status(400).json({ error: "IDs required" });
 
-// ── BLOCKED LIST ──────────────────────────────────────────────
-// GET /api/block/list/:myID
-router.get('/list/:myID', async (req, res) => {
-  try {
-    const { myID } = req.params;
-    const blocks = await Block.find({ blockerID: myID });
-    const blockedUsers = blocks.map(b => b.blockedID);
-    res.json({ blockedUsers });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    try {
+      await Block.deleteOne({ blockerID, blockedID });
+      return res.json({ message: "Unblocked successfully ✅" });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
-});
 
-// ── CHECK: kya X ne Y ko block kiya? ─────────────────────────
-// GET /api/block/check?blockerID=X&blockedID=Y
-router.get('/check', async (req, res) => {
-  try {
+  // ════════════════════════════════════════════════════════
+  //  BLOCKED LIST
+  // ════════════════════════════════════════════════════════
+
+  if (req.method === "GET" && path === "blocklist") {
+    const { myID } = req.query;
+    if (!myID) return res.status(400).json({ error: "myID chahiye" });
+
+    try {
+      const blocks = await Block.find({ blockerID: myID });
+      return res.json({ blockedUsers: blocks.map(b => b.blockedID) });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
+  }
+
+  // ════════════════════════════════════════════════════════
+  //  CHECK BLOCK
+  // ════════════════════════════════════════════════════════
+
+  if (req.method === "GET" && path === "blockcheck") {
     const { blockerID, blockedID } = req.query;
-    const exists = await Block.findOne({ blockerID, blockedID });
-    res.json({ isBlocked: !!exists });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    if (!blockerID || !blockedID)
+      return res.status(400).json({ error: "IDs chahiye" });
+
+    try {
+      const exists = await Block.findOne({ blockerID, blockedID });
+      return res.json({ isBlocked: !!exists });
+    } catch (e) {
+      return res.status(500).json({ error: e.message });
+    }
   }
-});
 
-module.exports = router;
-
-
-// ─────────────────────────────────────────────────────────────
-//  BlockModel.js  —  Mongoose Schema
-//  (Is code ko alag BlockModel.js file mein daalo)
-// ─────────────────────────────────────────────────────────────
-
-/*
-const mongoose = require('mongoose');
-
-const blockSchema = new mongoose.Schema({
-  blockerID: { type: String, required: true },   // jisne block kiya
-  blockedID: { type: String, required: true },   // jise block kiya
-  blockedAt: { type: Date,   default: Date.now },
-});
-
-// Duplicate index — ek pair ek baar hi ho sakta
-blockSchema.index({ blockerID: 1, blockedID: 1 }, { unique: true });
-
-module.exports = mongoose.model('Block', blockSchema);
-*/
-
-
-// ─────────────────────────────────────────────────────────────
-//  Message bhejne se pehle block check karo (sendMessage mein)
-//  
-//  Apne existing sendMessage route mein yeh add karo:
-// ─────────────────────────────────────────────────────────────
-
-/*
-  // Sender blocked hai kya?
-  const isBlocked = await Block.findOne({
-    blockerID: targetID,   // receiver ne block kiya ho
-    blockedID: senderID,   // sender ko
-  });
-  
-  if (isBlocked) {
-    return res.status(403).json({ error: "Aap block hain, message nahi ja sakta" });
-  }
-*/
+  return res.status(404).json({ message: "Route nahi mila", path });
+}
