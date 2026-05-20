@@ -87,9 +87,8 @@ export default async function handler(req, res) {
   if (req.method === "OPTIONS") return res.status(200).end();
 
   await connectDB();
-
-  const fullUrl = req.url.split("?")[0];
-  const path    = fullUrl.split("/").pop();
+  const fullUrl = req.url.split("?")[0].replace(/\/$/, "");
+  const path    = fullUrl.split("/").filter(Boolean).pop();
 
   // ════════════════════════════════════════════════════════════
   //  CALL LOGS
@@ -344,12 +343,12 @@ export default async function handler(req, res) {
     }
   }
 
-  if (req.method === "DELETE" && path === "delete") {
-    const { scheduleID, userID } = req.body;
+  
+    if (req.method === "DELETE" && path === "delete") {
+  const { scheduleID, userID } = req.body;
 
-    if (!scheduleID)
-      return res.status(400).json({ message: "scheduleID chahiye" });
-
+  if (!scheduleID || !userID)
+    return res.status(400).json({ message: "scheduleID aur userID chahiye" });
     try {
       const doc = await Schedule.findById(scheduleID);
       if (!doc)
