@@ -1,9 +1,8 @@
-// api/communication.js
 import { connectDB, User } from "../lib/db.js";
 import mongoose from "mongoose";
-import admin from "firebase-admin";
+import fetch from "node-fetch"; // npm install node-fetch
 
-// ─── SCHEMAS ──────────────────────────────────────────────────────
+// ─── SCHEMAS (same rahenge) ───────────────────────────────────
 
 const callLogSchema = new mongoose.Schema({
   callID:       { type: String,   required: true },
@@ -31,11 +30,7 @@ const scheduleSchema = new mongoose.Schema({
   callType:    { type: String, enum: ["audio", "video"], default: "video" },
   reminder:    { type: Number, default: 15 },
   notified:    { type: Boolean, default: false },
-  status:      {
-    type:    String,
-    enum:    ["pending", "confirmed", "cancelled"],
-    default: "pending",
-  },
+  status:      { type: String, enum: ["pending", "confirmed", "cancelled"], default: "pending" },
   note:        { type: String, default: "" },
   createdAt:   { type: Date,   default: Date.now },
 });
@@ -55,7 +50,7 @@ const CallLog          = mongoose.models.CallLogs          || mongoose.model("Ca
 const Schedule         = mongoose.models.Schedule          || mongoose.model("Schedule",          scheduleSchema);
 const CompanionSession = mongoose.models.CompanionSession  || mongoose.model("CompanionSession",  companionSessionSchema);
 
-// ─── HELPER: Silence Unknown Callers check ────────────────────────
+// ─── HELPER: Silence Unknown Callers ─────────────────────────
 async function isSilenced(callerID, receiverID) {
   try {
     const receiver = await User.findById(receiverID, { silenceUnknown: 1 });
@@ -73,12 +68,32 @@ async function isSilenced(callerID, receiverID) {
   }
 }
 
-// ─── HELPER: Random token ─────────────────────────────────────────
+// ─── HELPER: Random token ─────────────────────────────────────
 function generateToken() {
   return Math.random().toString(36).substring(2) + Date.now().toString(36);
 }
 
-// ─── MAIN HANDLER ─────────────────────────────────────────────────
+// ─── HELPER: Expo Push Notification ──────────────────────────
+async function sendExpoPushNotification({ expoPushToken, title, body, data }) {
+  const message = {
+    to:    expoPushToken,
+    sound: "default",
+    title,
+    body,
+    data:  data ?? {},
+  };
+
+  await fetch("https://exp.host/--/api/v2/push/send", {
+    method:  "POST",
+    headers: {
+      "Content-Type":  "application/json",
+      "Accept":        "application/json",
+    },
+    body: JSON.stringify(message),
+  });
+}
+
+// ─── MAIN HANDLER ─────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin",  "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -90,9 +105,7 @@ export default async function handler(req, res) {
   const fullUrl = req.url.split("?")[0].replace(/\/$/, "");
   const path    = fullUrl.split("/").filter(Boolean).pop();
 
-  // ════════════════════════════════════════════════════════════
-  //  CALL LOGS
-  // ════════════════════════════════════════════════════════════
+  // ── CALL LOGS ─────────────────────────────────────────────
 
   if (req.method === "POST" && path === "calllogs") {
     const {
@@ -109,29 +122,21 @@ export default async function handler(req, res) {
       const silenced = await isSilenced(callerID, calleeID);
       if (silenced) {
         await CallLog.create({
-          callID, callerID, callerName,
-          calleeID, calleeName,
-          type:         "missed",
-          callType:     callType     ?? "audio",
-          duration:     0,
-          endedAt:      null,
-          isGroupCall:  isGroupCall  ?? false,
+          callID, callerID, callerName, calleeID, calleeName,
+          type: "missed", callType: callType ?? "audio",
+          duration: 0, endedAt: null,
+          isGroupCall: isGroupCall ?? false,
           participants: participants ?? [],
           recordingUrl: "",
         });
-        return res.status(403).json({
-          message:  "Receiver unknown calls silence karta hai 🔕",
-          silenced: true,
-        });
+        return res.status(403).json({ message: "Receiver unknown calls silence karta hai 🔕", silenced: true });
       }
 
       const log = await CallLog.create({
-        callID, callerID, callerName,
-        calleeID, calleeName,
-        type,
-        callType:     callType     ?? "audio",
-        duration:     duration     ?? 0,
-        endedAt:      endedAt      ? new Date(endedAt) : null,
+        callID, callerID, callerName, calleeID, calleeName,
+        type, callType: callType ?? "audio",
+        duration: duration ?? 0,
+        endedAt:  endedAt ? new Date(endedAt) : null,
         isGroupCall:  isGroupCall  ?? false,
         participants: participants ?? [],
         recordingUrl: recordingUrl ?? "",
@@ -144,37 +149,23 @@ export default async function handler(req, res) {
 
   if (req.method === "GET" && path === "calllogs") {
     const { userID, type, callType, limit = 50 } = req.query;
-    if (!userID)
-      return res.status(400).json({ message: "userID chahiye" });
+    if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
     try {
-      const filter = {
-        $or: [{ callerID: userID }, { calleeID: userID }],
-      };
+      const filter = { $or: [{ callerID: userID }, { calleeID: userID }] };
       if (type)     filter.type     = type;
       if (callType) filter.callType = callType;
 
-      const logs = await CallLog
-        .find(filter)
-        .sort({ startedAt: -1 })
-        .limit(Number(limit));
-
+      const logs = await CallLog.find(filter).sort({ startedAt: -1 }).limit(Number(limit));
       return res.status(200).json({
         logs: logs.map(l => ({
-          id:           l._id,
-          callID:       l.callID,
-          callerID:     l.callerID,
-          callerName:   l.callerName,
-          calleeID:     l.calleeID,
-          calleeName:   l.calleeName,
-          type:         l.type,
-          callType:     l.callType,
-          duration:     l.duration,
-          startedAt:    l.startedAt,
-          endedAt:      l.endedAt,
-          isGroupCall:  l.isGroupCall,
-          participants: l.participants,
-          recordingUrl: l.recordingUrl,
+          id: l._id, callID: l.callID,
+          callerID: l.callerID, callerName: l.callerName,
+          calleeID: l.calleeID, calleeName: l.calleeName,
+          type: l.type, callType: l.callType,
+          duration: l.duration, startedAt: l.startedAt,
+          endedAt: l.endedAt, isGroupCall: l.isGroupCall,
+          participants: l.participants, recordingUrl: l.recordingUrl,
         })),
       });
     } catch (e) {
@@ -184,15 +175,12 @@ export default async function handler(req, res) {
 
   if (req.method === "DELETE" && path === "calllogs") {
     const { callLogID, userID } = req.body;
-
     if (!callLogID || !userID)
       return res.status(400).json({ message: "callLogID aur userID chahiye" });
 
     try {
       const log = await CallLog.findById(callLogID);
-      if (!log)
-        return res.status(404).json({ message: "Call log nahi mila" });
-
+      if (!log) return res.status(404).json({ message: "Call log nahi mila" });
       if (log.callerID !== userID && log.calleeID !== userID)
         return res.status(403).json({ message: "Aap is log ko delete nahi kar sakte" });
 
@@ -203,9 +191,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  //  FCM — INCOMING CALL NOTIFY  ✅ FIXED: calllogs ke bahar
-  // ════════════════════════════════════════════════════════════
+  // ── NOTIFY CALL (Expo Push) ───────────────────────────────
 
   if (req.method === "POST" && path === "notify-call") {
     const { callerID, callerName, calleeID, callID } = req.body;
@@ -214,71 +200,52 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "callerID, calleeID, callID chahiye" });
 
     try {
-      const receiver = await User.findById(calleeID, { fcmToken: 1, name: 1 });
+      const receiver = await User.findById(calleeID, { expoPushToken: 1, name: 1 });
 
-      if (!receiver || !receiver.fcmToken)
-        return res.status(404).json({ message: "Receiver ka FCM token nahi mila" });
+      if (!receiver || !receiver.expoPushToken)
+        return res.status(404).json({ message: "Receiver ka Expo push token nahi mila" });
 
-      const message = {
-        token: receiver.fcmToken,
-        data: {
-          type:         "incoming_call",
-          callerName:   callerName        ?? "Unknown",
-          callID:       callID,
-          receiverID:   calleeID,
-          receiverName: receiver.name     ?? "",
+      await sendExpoPushNotification({
+        expoPushToken: receiver.expoPushToken,
+        title: `📞 ${callerName ?? "Someone"} ka call aa raha hai`,
+        body:  "Tap karo receive karne ke liye",
+        data:  {
+          type:       "incoming_call",
+          callerName: callerName ?? "Unknown",
+          callID,
+          receiverID: calleeID,
         },
-        android: { priority: "high" },
-        apns:    { headers: { "apns-priority": "10" } },
-      };
-
-      await admin.messaging().send(message);
+      });
 
       return res.status(200).json({ message: "Call notification bhej di ✅" });
     } catch (e) {
-      return res.status(500).json({ message: "FCM error", error: e.message });
+      return res.status(500).json({ message: "Expo Push error", error: e.message });
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  //  SCHEDULE
-  // ════════════════════════════════════════════════════════════
+  // ── SCHEDULE ──────────────────────────────────────────────
 
   if (req.method === "POST" && path === "create") {
-    const {
-      callerID, callerName,
-      calleeID, calleeName,
-      scheduledAt, endTime,
-      callType, reminder, note,
-    } = req.body;
-
+    const { callerID, callerName, calleeID, calleeName, scheduledAt, endTime, callType, reminder, note } = req.body;
     if (!callerID || !calleeID || !scheduledAt)
       return res.status(400).json({ message: "callerID, calleeID, scheduledAt chahiye" });
 
     try {
       const silenced = await isSilenced(callerID, calleeID);
-      if (silenced) {
-        return res.status(403).json({
-          message:  "Receiver unknown calls silence karta hai 🔕",
-          silenced: true,
-        });
-      }
+      if (silenced)
+        return res.status(403).json({ message: "Receiver unknown calls silence karta hai 🔕", silenced: true });
 
       const doc = await Schedule.create({
         callerID, callerName: callerName ?? "",
         calleeID, calleeName: calleeName ?? "",
         scheduledAt: new Date(scheduledAt),
-        endTime:     endTime ? new Date(endTime) : null,
-        callType:    callType ?? "video",
-        reminder:    reminder ?? 15,
-        note:        note     ?? "",
-        status:      "pending",
+        endTime:  endTime ? new Date(endTime) : null,
+        callType: callType ?? "video",
+        reminder: reminder ?? 15,
+        note:     note     ?? "",
+        status:   "pending",
       });
-      return res.status(201).json({
-        message:    "Schedule ho gaya ✅",
-        scheduleID: doc._id.toString(),
-        data:       doc,
-      });
+      return res.status(201).json({ message: "Schedule ho gaya ✅", scheduleID: doc._id.toString(), data: doc });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
@@ -286,16 +253,11 @@ export default async function handler(req, res) {
 
   if (req.method === "GET" && path === "schedule") {
     const { userID, status, includePast } = req.query;
-    if (!userID)
-      return res.status(400).json({ message: "userID chahiye" });
+    if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
     try {
-      const filter = {
-        $or: [{ callerID: userID }, { calleeID: userID }],
-      };
-      if (includePast !== "true") {
-        filter.scheduledAt = { $gte: new Date() };
-      }
+      const filter = { $or: [{ callerID: userID }, { calleeID: userID }] };
+      if (includePast !== "true") filter.scheduledAt = { $gte: new Date() };
       if (status) filter.status = status;
 
       const schedules = await Schedule.find(filter).sort({ scheduledAt: 1 });
@@ -306,20 +268,13 @@ export default async function handler(req, res) {
   }
 
   if (req.method === "PATCH" && path === "schedule") {
-    const {
-      scheduleID, userID,
-      scheduledAt, endTime,
-      callType, reminder, note, status,
-    } = req.body;
-
+    const { scheduleID, userID, scheduledAt, endTime, callType, reminder, note, status } = req.body;
     if (!scheduleID || !userID)
       return res.status(400).json({ message: "scheduleID aur userID chahiye" });
 
     try {
       const doc = await Schedule.findById(scheduleID);
-      if (!doc)
-        return res.status(404).json({ message: "Schedule nahi mila" });
-
+      if (!doc) return res.status(404).json({ message: "Schedule nahi mila" });
       if (doc.callerID !== userID && doc.calleeID !== userID)
         return res.status(403).json({ message: "Aap is schedule ko update nahi kar sakte" });
 
@@ -329,8 +284,7 @@ export default async function handler(req, res) {
       if (reminder !== undefined) doc.reminder = reminder;
       if (note     !== undefined) doc.note     = note;
       if (status) {
-        const allowed = ["pending", "confirmed", "cancelled"];
-        if (!allowed.includes(status))
+        if (!["pending", "confirmed", "cancelled"].includes(status))
           return res.status(400).json({ message: "Status galat hai" });
         doc.status = status;
       }
@@ -343,18 +297,15 @@ export default async function handler(req, res) {
     }
   }
 
-  
-    if (req.method === "DELETE" && path === "delete") {
-  const { scheduleID, userID } = req.body;
+  if (req.method === "DELETE" && path === "delete") {
+    const { scheduleID, userID } = req.body;
+    if (!scheduleID || !userID)
+      return res.status(400).json({ message: "scheduleID aur userID chahiye" });
 
-  if (!scheduleID || !userID)
-    return res.status(400).json({ message: "scheduleID aur userID chahiye" });
     try {
       const doc = await Schedule.findById(scheduleID);
-      if (!doc)
-        return res.status(404).json({ message: "Schedule nahi mila" });
-
-      if (userID && doc.callerID !== userID && doc.calleeID !== userID)
+      if (!doc) return res.status(404).json({ message: "Schedule nahi mila" });
+      if (doc.callerID !== userID && doc.calleeID !== userID)
         return res.status(403).json({ message: "Aap is schedule ko delete nahi kar sakte" });
 
       await Schedule.findByIdAndDelete(scheduleID);
@@ -366,19 +317,15 @@ export default async function handler(req, res) {
 
   if (req.method === "GET" && path === "reminders") {
     const { userID } = req.query;
-    if (!userID)
-      return res.status(400).json({ message: "userID chahiye" });
+    if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
     try {
       const now = new Date();
       const upcoming = await Schedule.find({
-        $or:         [{ callerID: userID }, { calleeID: userID }],
-        status:      { $ne: "cancelled" },
-        notified:    false,
-        scheduledAt: {
-          $gte: now,
-          $lte: new Date(now.getTime() + 60 * 60 * 1000),
-        },
+        $or:      [{ callerID: userID }, { calleeID: userID }],
+        status:   { $ne: "cancelled" },
+        notified: false,
+        scheduledAt: { $gte: now, $lte: new Date(now.getTime() + 60 * 60 * 1000) },
       }).sort({ scheduledAt: 1 });
 
       return res.json({ reminders: upcoming });
@@ -389,8 +336,7 @@ export default async function handler(req, res) {
 
   if (req.method === "PATCH" && path === "notified") {
     const { scheduleID } = req.body;
-    if (!scheduleID)
-      return res.status(400).json({ message: "scheduleID chahiye" });
+    if (!scheduleID) return res.status(400).json({ message: "scheduleID chahiye" });
 
     try {
       await Schedule.findByIdAndUpdate(scheduleID, { notified: true });
@@ -400,32 +346,18 @@ export default async function handler(req, res) {
     }
   }
 
-  // ════════════════════════════════════════════════════════════
-  //  COMPANION MODE
-  // ════════════════════════════════════════════════════════════
+  // ── COMPANION MODE ────────────────────────────────────────
 
   if (req.method === "POST" && path === "companion-generate") {
     const { userID } = req.body;
-    if (!userID)
-      return res.status(400).json({ message: "userID chahiye" });
+    if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
     try {
-      await CompanionSession.deleteMany({
-        userID,
-        status:    "pending",
-        expiresAt: { $lt: new Date() },
-      });
-
+      await CompanionSession.deleteMany({ userID, status: "pending", expiresAt: { $lt: new Date() } });
       const token     = generateToken();
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
-
       await CompanionSession.create({ token, userID, expiresAt });
-
-      return res.status(201).json({
-        message: "Session token ban gaya ✅",
-        token,
-        expiresAt,
-      });
+      return res.status(201).json({ message: "Session token ban gaya ✅", token, expiresAt });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
@@ -433,20 +365,14 @@ export default async function handler(req, res) {
 
   if (req.method === "POST" && path === "companion-verify") {
     const { token, deviceInfo } = req.body;
-    if (!token)
-      return res.status(400).json({ message: "token chahiye" });
+    if (!token) return res.status(400).json({ message: "token chahiye" });
 
     try {
       const session = await CompanionSession.findOne({ token });
-
-      if (!session)
-        return res.status(404).json({ message: "Session nahi mili" });
-      if (session.status === "revoked")
-        return res.status(410).json({ message: "Yeh session revoke ho chuka hai" });
-      if (session.status === "approved")
-        return res.status(409).json({ message: "Yeh session pehle se approved hai" });
-      if (new Date() > session.expiresAt)
-        return res.status(410).json({ message: "Session expire ho gayi, dobara QR scan karo" });
+      if (!session)                    return res.status(404).json({ message: "Session nahi mili" });
+      if (session.status === "revoked") return res.status(410).json({ message: "Yeh session revoke ho chuka hai" });
+      if (session.status === "approved") return res.status(409).json({ message: "Yeh session pehle se approved hai" });
+      if (new Date() > session.expiresAt) return res.status(410).json({ message: "Session expire ho gayi, dobara QR scan karo" });
 
       session.status     = "approved";
       session.deviceInfo = deviceInfo ?? {};
@@ -455,11 +381,9 @@ export default async function handler(req, res) {
       await session.save();
 
       const user = await User.findById(session.userID, { name: 1, email: 1, image: 1 });
-
       return res.status(200).json({
-        message:  "Device link ho gaya ✅",
-        token,
-        userID:   session.userID,
+        message: "Device link ho gaya ✅",
+        token, userID: session.userID,
         userName: user?.name  ?? "",
         email:    user?.email ?? "",
         image:    user?.image ?? "",
@@ -471,21 +395,14 @@ export default async function handler(req, res) {
 
   if (req.method === "GET" && path === "companion-devices") {
     const { userID } = req.query;
-    if (!userID)
-      return res.status(400).json({ message: "userID chahiye" });
+    if (!userID) return res.status(400).json({ message: "userID chahiye" });
 
     try {
-      const devices = await CompanionSession.find({
-        userID,
-        status: "approved",
-      }).sort({ linkedAt: -1 });
-
+      const devices = await CompanionSession.find({ userID, status: "approved" }).sort({ linkedAt: -1 });
       return res.status(200).json({
         devices: devices.map(d => ({
-          token:      d.token,
-          deviceInfo: d.deviceInfo,
-          linkedAt:   d.linkedAt,
-          lastActive: d.lastActive,
+          token: d.token, deviceInfo: d.deviceInfo,
+          linkedAt: d.linkedAt, lastActive: d.lastActive,
         })),
       });
     } catch (e) {
@@ -500,14 +417,11 @@ export default async function handler(req, res) {
 
     try {
       const session = await CompanionSession.findOne({ token });
-      if (!session)
-        return res.status(404).json({ message: "Session nahi mili" });
-      if (session.userID !== userID)
-        return res.status(403).json({ message: "Aap is device ko unlink nahi kar sakte" });
+      if (!session) return res.status(404).json({ message: "Session nahi mili" });
+      if (session.userID !== userID) return res.status(403).json({ message: "Aap is device ko unlink nahi kar sakte" });
 
       session.status = "revoked";
       await session.save();
-
       return res.status(200).json({ message: "Device unlink ho gaya ✅" });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
@@ -516,25 +430,15 @@ export default async function handler(req, res) {
 
   if (req.method === "PATCH" && path === "companion-active") {
     const { token } = req.body;
-    if (!token)
-      return res.status(400).json({ message: "token chahiye" });
+    if (!token) return res.status(400).json({ message: "token chahiye" });
 
     try {
-      await CompanionSession.findOneAndUpdate(
-        { token, status: "approved" },
-        { lastActive: new Date() }
-      );
+      await CompanionSession.findOneAndUpdate({ token, status: "approved" }, { lastActive: new Date() });
       return res.status(200).json({ message: "Active update ho gaya ✅" });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
 
-  // ── 404 ──────────────────────────────────────────────────────
-  return res.status(404).json({
-    message: "Route nahi mila",
-    method:  req.method,
-    url:     fullUrl,
-    path,
-  });
+  return res.status(404).json({ message: "Route nahi mila", method: req.method, url: fullUrl, path });
 }

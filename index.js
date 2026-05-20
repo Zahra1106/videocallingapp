@@ -7,7 +7,7 @@ import cors from "cors";
 import { connectDB } from "./lib/db.js";
 // ── Status import ─────────────────────────────────────────────
 import statusHandler from "./api/status.js";  // ← add karo upar imports mein
-import admin from "firebase-admin";
+
 
 
 
@@ -22,13 +22,6 @@ import communicationHandler from "./api/communication.js";
 import favouritesHandler    from "./api/favourites.js";
 
 const app = express();
-const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT);
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-}
-
 app.use(cors());
 app.use(express.json());
 
