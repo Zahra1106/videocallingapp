@@ -7,6 +7,7 @@ import cors from "cors";
 import { connectDB } from "./lib/db.js";
 // ── Status import ─────────────────────────────────────────────
 import statusHandler from "./api/status.js";  // ← add karo upar imports mein
+import blockRoutesHandler from "./api/blockroutes.js";
 
 
 
