@@ -60,7 +60,9 @@ app.all("/api/groups/pin",      groupsHandler);
 app.all("/api/groups/pinned",   groupsHandler);
 app.all("/api/groups/info",     groupsHandler);
 // ── Communication (CallLogs + Schedule) ───────────────────────
-app.all("/api/communication/calllogs",  communicationHandler); // POST + GET + DELETE
+// ── Communication (CallLogs + Schedule) ───────────────────────
+app.all("/api/calllogs",               communicationHandler); // ← ADD KARO
+app.all("/api/communication/calllogs",  communicationHandler);
 app.all("/api/communication/create",    communicationHandler); // schedule banao
 app.all("/api/communication/schedule",  communicationHandler); // schedule fetch + PATCH update
 app.all("/api/communication/delete",    communicationHandler); // schedule delete
