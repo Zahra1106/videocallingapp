@@ -10,7 +10,20 @@
     }
   ],
   "routes": [
-    { "src": "/api/(.*)", "dest": "index.js" },
+    { "src": "/api/calllogs(.*)", "dest": "index.js" },
+    { "src": "/api/communication(.*)", "dest": "index.js" },
+    { "src": "/api/status(.*)", "dest": "index.js" },
+    { "src": "/api/chat(.*)", "dest": "index.js" },
+    { "src": "/api/groups(.*)", "dest": "index.js" },
+    { "src": "/api/users(.*)", "dest": "index.js" },
+    { "src": "/api/signup(.*)", "dest": "index.js" },
+    { "src": "/api/login(.*)", "dest": "index.js" },
+    { "src": "/api/forgot-password(.*)", "dest": "index.js" },
+    { "src": "/api/favourites(.*)", "dest": "index.js" },
+    { "src": "/api/agora-token(.*)", "dest": "index.js" },
+    { "src": "/api/block(.*)", "dest": "index.js" },
+    { "src": "/api/blocklist(.*)", "dest": "index.js" },
+    { "src": "/api/blockcheck(.*)", "dest": "index.js" },
     { "src": "/(.*)", "dest": "index.js" }
   ]
 }
