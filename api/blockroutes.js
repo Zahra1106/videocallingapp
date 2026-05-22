@@ -1,9 +1,6 @@
 import { connectDB } from "../lib/db.js";
 import mongoose from "mongoose";
-import pkg from "agora-access-token";
-const { RtcTokenBuilder, RtcRole } = pkg;
 
-// ─── Block Schema ─────────────────────────────────────────────
 const blockSchema = new mongoose.Schema({
   blockerID: { type: String, required: true },
   blockedID: { type: String, required: true },
@@ -12,7 +9,6 @@ const blockSchema = new mongoose.Schema({
 blockSchema.index({ blockerID: 1, blockedID: 1 }, { unique: true });
 const Block = mongoose.models.Block || mongoose.model("Block", blockSchema);
 
-// ─── MAIN HANDLER ─────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin",  "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -25,47 +21,30 @@ export default async function handler(req, res) {
   const fullUrl = req.url.split("?")[0].replace(/\/$/, "");
   const path    = fullUrl.split("/").filter(Boolean).pop();
 
-  // ════════════════════════════════════════════════════════
-  //  AGORA TOKEN GENERATE
-  // ════════════════════════════════════════════════════════
-
+  // AGORA TOKEN
   if (req.method === "POST" && path === "agora-token") {
     const { channelName, uid } = req.body;
-
     if (!channelName || uid === undefined)
       return res.status(400).json({ message: "channelName aur uid chahiye" });
-
     try {
-      const appID      = process.env.AGORA_APP_ID;
-      const appCert    = process.env.AGORA_APP_CERTIFICATE;
-      const expireTime = 86400; // 1 hour
-      const currentTime   = Math.floor(Date.now() / 1000);
-      const privilegeExpireTime = currentTime + expireTime;
-
+      const { RtcTokenBuilder, RtcRole } = await import("agora-access-token");
+      const appID   = process.env.AGORA_APP_ID;
+      const appCert = process.env.AGORA_APP_CERTIFICATE;
+      const expireTime = Math.floor(Date.now() / 1000) + 86400;
       const token = RtcTokenBuilder.buildTokenWithUid(
-        appID,
-        appCert,
-        channelName,
-        uid,
-        RtcRole.PUBLISHER,
-        privilegeExpireTime
+        appID, appCert, channelName, uid, RtcRole.PUBLISHER, expireTime
       );
-
       return res.status(200).json({ token, appID });
     } catch (e) {
       return res.status(500).json({ message: "Token error", error: e.message });
     }
   }
 
-  // ════════════════════════════════════════════════════════
-  //  BLOCK KARO
-  // ════════════════════════════════════════════════════════
-
+  // BLOCK
   if (req.method === "POST" && path === "block") {
     const { blockerID, blockedID } = req.body;
     if (!blockerID || !blockedID)
       return res.status(400).json({ error: "IDs required" });
-
     try {
       const exists = await Block.findOne({ blockerID, blockedID });
       if (exists) return res.json({ message: "Already blocked" });
@@ -76,15 +55,11 @@ export default async function handler(req, res) {
     }
   }
 
-  // ════════════════════════════════════════════════════════
-  //  UNBLOCK KARO
-  // ════════════════════════════════════════════════════════
-
+  // UNBLOCK
   if (req.method === "DELETE" && path === "block") {
     const { blockerID, blockedID } = req.body;
     if (!blockerID || !blockedID)
       return res.status(400).json({ error: "IDs required" });
-
     try {
       await Block.deleteOne({ blockerID, blockedID });
       return res.json({ message: "Unblocked successfully ✅" });
@@ -93,14 +68,10 @@ export default async function handler(req, res) {
     }
   }
 
-  // ════════════════════════════════════════════════════════
-  //  BLOCKED LIST
-  // ════════════════════════════════════════════════════════
-
+  // BLOCKLIST
   if (req.method === "GET" && path === "blocklist") {
     const { myID } = req.query;
     if (!myID) return res.status(400).json({ error: "myID chahiye" });
-
     try {
       const blocks = await Block.find({ blockerID: myID });
       return res.json({ blockedUsers: blocks.map(b => b.blockedID) });
@@ -109,15 +80,11 @@ export default async function handler(req, res) {
     }
   }
 
-  // ════════════════════════════════════════════════════════
-  //  CHECK BLOCK
-  // ════════════════════════════════════════════════════════
-
+  // BLOCKCHECK
   if (req.method === "GET" && path === "blockcheck") {
     const { blockerID, blockedID } = req.query;
     if (!blockerID || !blockedID)
       return res.status(400).json({ error: "IDs chahiye" });
-
     try {
       const exists = await Block.findOne({ blockerID, blockedID });
       return res.json({ isBlocked: !!exists });
