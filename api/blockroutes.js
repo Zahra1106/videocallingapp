@@ -1,6 +1,7 @@
 import { connectDB } from "../lib/db.js";
 import mongoose from "mongoose";
-import { RtcTokenBuilder, RtcRole } from "agora-access-token";
+import pkg from "agora-access-token";
+const { RtcTokenBuilder, RtcRole } = pkg;
 
 // ─── Block Schema ─────────────────────────────────────────────
 const blockSchema = new mongoose.Schema({
