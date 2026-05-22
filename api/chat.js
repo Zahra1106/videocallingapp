@@ -249,7 +249,11 @@ export default async function handler(req, res) {
         viewedBy: { $all: participants },
       });
 
-      const messages = await Chat.find({ chatID: cID }).sort({ time: 1 });
+      const since = parseInt(req.query.since) || 0;
+      const filter = since > 0
+        ? { chatID: cID, time: { $gt: since } }
+        : { chatID: cID };
+      const messages = await Chat.find(filter).sort({ time: 1 });
 
       const result = messages.map(m => {
         const obj = m.toObject();
