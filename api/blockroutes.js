@@ -27,7 +27,18 @@ export default async function handler(req, res) {
     if (!channelName || uid === undefined)
       return res.status(400).json({ message: "channelName aur uid chahiye" });
     try {
-      const { RtcTokenBuilder, RtcRole } = await import("agora-access-token");
+      // ✅ Naya — is se replace karo
+const agoraToken = await import("agora-access-token");
+const RtcTokenBuilder = agoraToken.RtcTokenBuilder;
+const RtcRole = agoraToken.RtcRole ?? agoraToken.default?.RtcRole;
+
+const appID   = process.env.AGORA_APP_ID;
+const appCert = process.env.AGORA_APP_CERTIFICATE;
+const expireTime = Math.floor(Date.now() / 1000) + 86400;
+
+const token = RtcTokenBuilder.buildTokenWithUid(
+  appID, appCert, channelName, uid, RtcRole.PUBLISHER, expireTime
+);
       const appID   = process.env.AGORA_APP_ID;
       const appCert = process.env.AGORA_APP_CERTIFICATE;
       const expireTime = Math.floor(Date.now() / 1000) + 86400;
