@@ -109,47 +109,60 @@ export default async function handler(req, res) {
 
   // ── CALL LOGS ─────────────────────────────────────────────
 
-  if (req.method === "POST" && path === "calllogs") {
-    const {
-      callID, callerID, callerName,
-      calleeID, calleeName, type, callType,
-      duration, endedAt, isGroupCall,
-      participants, recordingUrl,
-    } = req.body;
+ if (req.method === "POST" && path === "notify-call") {
+  const { callerID, callerName, calleeID, calleeName, callID, callType } = req.body;
 
-    if (!callID || !callerID || !callerName || !calleeID || !calleeName || !type)
-      return res.status(400).json({ message: "Sab required fields bharo" });
+  if (!callerID || !calleeID || !callID)
+    return res.status(400).json({ message: "callerID, calleeID, callID chahiye" });
 
-    try {
-      const silenced = await isSilenced(callerID, calleeID);
-      if (silenced) {
-        await CallLog.create({
-          callID, callerID, callerName, calleeID, calleeName,
-          type: "missed", callType: callType ?? "audio",
-          status: "missed",
-          duration: 0, endedAt: null,
-          isGroupCall: isGroupCall ?? false,
-          participants: participants ?? [],
-          recordingUrl: "",
+  try {
+    const receiver = await User.findById(calleeID, { expoPushToken: 1, name: 1 });
+
+    // ✅ FIX 1: Pehle CallLog save karo — token ho ya na ho
+    await CallLog.findOneAndUpdate(
+      { callID },
+      {
+        $setOnInsert: {
+          callID,
+          callerID,
+          callerName:  callerName ?? "Unknown",
+          calleeID,
+          calleeName:  calleeName ?? receiver?.name ?? "Unknown",
+          type:        "incoming",
+          callType:    callType   ?? "audio",
+          status:      "ringing",
+          startedAt:   new Date(),
+        },
+      },
+      { upsert: true, new: true }
+    );
+
+    // ✅ FIX 2: Push notification optional hai — polling kaam karegi
+    if (receiver?.expoPushToken) {
+      try {
+        await sendExpoPushNotification({
+          expoPushToken: receiver.expoPushToken,
+          title: `📞 ${callerName ?? "Someone"} ka call aa raha hai`,
+          body:  "Tap karo receive karne ke liye",
+          data:  {
+            type:       "incoming_call",
+            callerName: callerName ?? "Unknown",
+            callID,
+            receiverID: calleeID,
+          },
         });
-        return res.status(403).json({ message: "Receiver unknown calls silence karta hai 🔕", silenced: true });
+      } catch (pushErr) {
+        console.error("Push notification error (ignored):", pushErr.message);
       }
-
-      const log = await CallLog.create({
-        callID, callerID, callerName, calleeID, calleeName,
-        type, callType: callType ?? "audio",
-        status: "ringing",
-        duration: duration ?? 0,
-        endedAt:  endedAt ? new Date(endedAt) : null,
-        isGroupCall:  isGroupCall  ?? false,
-        participants: participants ?? [],
-        recordingUrl: recordingUrl ?? "",
-      });
-      return res.status(201).json({ message: "Call log save ho gaya ✅", log });
-    } catch (e) {
-      return res.status(500).json({ message: "Server error", error: e.message });
     }
+
+    // ✅ Hamesha 200 return karo — polling kaam karegi
+    return res.status(200).json({ message: "Call initiated ✅" });
+
+  } catch (e) {
+    return res.status(500).json({ message: "Server error", error: e.message });
   }
+}
 
   if (req.method === "GET" && path === "calllogs") {
     const { userID, type, callType, limit = 50 } = req.query;
