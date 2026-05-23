@@ -23,33 +23,33 @@ export default async function handler(req, res) {
 
   // AGORA TOKEN
   if (req.method === "POST" && path === "agora-token") {
-    const { channelName, uid } = req.body;
-    if (!channelName || uid === undefined)
-      return res.status(400).json({ message: "channelName aur uid chahiye" });
-    try {
-      // ✅ Naya — is se replace karo
-const agoraToken = await import("agora-access-token");
-const RtcTokenBuilder = agoraToken.RtcTokenBuilder;
-const RtcRole = agoraToken.RtcRole ?? agoraToken.default?.RtcRole;
-
-const appID   = process.env.AGORA_APP_ID;
-const appCert = process.env.AGORA_APP_CERTIFICATE;
-const expireTime = Math.floor(Date.now() / 1000) + 86400;
-
-const token = RtcTokenBuilder.buildTokenWithUid(
-  appID, appCert, channelName, uid, RtcRole.PUBLISHER, expireTime
-);
-      const appID   = process.env.AGORA_APP_ID;
-      const appCert = process.env.AGORA_APP_CERTIFICATE;
-      const expireTime = Math.floor(Date.now() / 1000) + 86400;
-      const token = RtcTokenBuilder.buildTokenWithUid(
-        appID, appCert, channelName, uid, RtcRole.PUBLISHER, expireTime
-      );
-      return res.status(200).json({ token, appID });
-    } catch (e) {
-      return res.status(500).json({ message: "Token error", error: e.message });
-    }
+  const { channelName, uid } = req.body;
+  if (!channelName || uid === undefined)
+    return res.status(400).json({ message: "channelName aur uid chahiye" });
+  
+  try {
+    const { RtcTokenBuilder, RtcRole } = await import("agora-token");
+    
+    const appID      = process.env.AGORA_APP_ID;
+    const appCert    = process.env.AGORA_APP_CERTIFICATE;
+    const expireTime = 86400; // 24 ghante
+    const currentTime = Math.floor(Date.now() / 1000);
+    
+    const token = RtcTokenBuilder.buildTokenWithUid(
+      appID,
+      appCert,
+      channelName,
+      uid,
+      RtcRole.PUBLISHER,
+      currentTime + expireTime,
+      currentTime + expireTime
+    );
+    
+    return res.status(200).json({ token, appID });
+  } catch (e) {
+    return res.status(500).json({ message: "Token error", error: e.message });
   }
+}
 
   // BLOCK
   if (req.method === "POST" && path === "block") {
