@@ -93,6 +93,10 @@ app.all("/api/agora-token", blockRoutesHandler);
 app.all("/api/block",       blockRoutesHandler);
 app.all("/api/blocklist",   blockRoutesHandler);
 app.all("/api/blockcheck",  blockRoutesHandler);
+// ── Call Notification (FCM) ───────────────────────────────────
+app.all("/api/communication/notify-call",  communicationHandler); // ✅ pehle se hai
+app.all("/api/communication/pending-call", communicationHandler); // ✅ YEH ADD KARO
+app.all("/api/communication/call-status",  communicationHandler); // ✅ YEH BHI ADD KARO
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/", (req, res) => {
