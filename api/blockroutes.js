@@ -1,5 +1,6 @@
 import { connectDB } from "../lib/db.js";
 import mongoose from "mongoose";
+import { RtcTokenBuilder, RtcRole } from "agora-token"; // ✅ Yahan add karo
 
 const blockSchema = new mongoose.Schema({
   blockerID: { type: String, required: true },
@@ -33,7 +34,7 @@ export default async function handler(req, res) {
     const expire  = Math.floor(Date.now() / 1000) + 86400;
 
     // Seedha require karo
-    const { RtcTokenBuilder, RtcRole } = require("agora-token");
+    import { RtcTokenBuilder, RtcRole } from "agora-token";
 
     const token = RtcTokenBuilder.buildTokenWithUid(
       appID, appCert, channelName, Number(uid),
