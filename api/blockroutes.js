@@ -1,8 +1,8 @@
 import { connectDB } from "../lib/db.js";
 import mongoose from "mongoose";
-import agoraToken from "agora-token";
-
-const { RtcTokenBuilder, RtcRole } = agoraToken;
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const { RtcTokenBuilder, RtcRole } = require("agora-token");
 
 const blockSchema = new mongoose.Schema({
   blockerID: { type: String, required: true },
