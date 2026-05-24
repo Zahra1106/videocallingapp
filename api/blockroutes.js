@@ -1,5 +1,6 @@
 import { connectDB } from "../lib/db.js";
 import mongoose from "mongoose";
+import agoraToken from "agora-token";
 import { RtcTokenBuilder, RtcRole } from "agora-token";
 
 const blockSchema = new mongoose.Schema({
