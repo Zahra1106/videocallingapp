@@ -24,6 +24,8 @@
     { "src": "/api/block(.*)", "dest": "index.js" },
     { "src": "/api/blocklist(.*)", "dest": "index.js" },
     { "src": "/api/blockcheck(.*)", "dest": "index.js" },
-    { "src": "/(.*)", "dest": "index.js" }
+    { "src": "/(.*)", "dest": "index.js" },
+    { "src": "/api/profile(.*)", "dest": "index.js" },
+    { "src": "/api/upload(.*)",  "dest": "index.js" }
   ]
 }

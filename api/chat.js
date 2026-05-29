@@ -1,5 +1,5 @@
-import { connectDB, User, ChatMeta } from "../lib/db.js";
 import mongoose from "mongoose";
+import { connectDB, User, ChatMeta, TypingStatus } from "../lib/db.js";
 
 const chatSchema = new mongoose.Schema({
   chatID:          { type: String, required: true },
@@ -33,7 +33,6 @@ const chatSchema = new mongoose.Schema({
 
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
 
-const typingUsers = {};
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -67,30 +66,43 @@ export default async function handler(req, res) {
   //  TYPING
   // ══════════════════════════════════════════════════════════
   if (url.includes("/typing")) {
-    if (req.method === "POST") {
-      const { chatID, userID, isTyping } = req.body;
-      if (!chatID || !userID)
-        return res.status(400).json({ message: "chatID aur userID chahiye" });
 
-      if (isTyping) {
-        typingUsers[chatID] = userID;
-        setTimeout(() => {
-          if (typingUsers[chatID] === userID) delete typingUsers[chatID];
-        }, 5000);
-      } else {
-        delete typingUsers[chatID];
-      }
-      return res.json({ message: "ok" });
-    }
+  // ── POST: typing start/stop ──────────────────────────────
+  if (req.method === "POST") {
+    const { chatID, userID, isTyping } = req.body;
+    if (!chatID || !userID)
+      return res.status(400).json({ message: "chatID aur userID chahiye" });
 
-    if (req.method === "GET") {
-      const { chatID, myID } = req.query;
-      if (!chatID)
-        return res.status(400).json({ message: "chatID chahiye" });
-      const typingUserID = typingUsers[chatID];
-      return res.json({ isTyping: !!(typingUserID && typingUserID !== myID) });
+    if (isTyping) {
+      // 6 seconds baad auto-expire ho jayega MongoDB TTL se
+      const expiresAt = new Date(Date.now() + 6000);
+      await TypingStatus.findOneAndUpdate(
+        { chatID },
+        { userID, expiresAt },
+        { upsert: true, new: true }
+      );
+    } else {
+      await TypingStatus.deleteOne({ chatID, userID });
     }
+    return res.json({ message: "ok" });
   }
+
+  // ── GET: check kar koi type kar raha hai? ────────────────
+  if (req.method === "GET") {
+    const { chatID, myID } = req.query;
+    if (!chatID)
+      return res.status(400).json({ message: "chatID chahiye" });
+
+    const now    = new Date();
+    const record = await TypingStatus.findOne({
+      chatID,
+      expiresAt: { $gt: now },   // sirf fresh records
+    });
+
+    const isTyping = !!(record && record.userID !== myID);
+    return res.json({ isTyping });
+  }
+}
 
   // ══════════════════════════════════════════════════════════
   //  READ MARK

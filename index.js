@@ -8,6 +8,7 @@ import { connectDB } from "./lib/db.js";
 // ── Status import ─────────────────────────────────────────────
 import statusHandler from "./api/status.js";  // ← add karo upar imports mein
 import blockRoutesHandler from "./api/blockroutes.js";
+import profileHandler from "./api/profile.js";
 
 
 
@@ -97,6 +98,11 @@ app.all("/api/blockcheck",  blockRoutesHandler);
 app.all("/api/communication/notify-call",  communicationHandler); // ✅ pehle se hai
 app.all("/api/communication/pending-call", communicationHandler); // ✅ YEH ADD KARO
 app.all("/api/communication/call-status",  communicationHandler); // ✅ YEH BHI ADD KARO
+
+// Routes section mein add karo
+app.all("/api/profile",        profileHandler);
+app.all("/api/profile/update", profileHandler);
+app.all("/api/upload",         profileHandler);
 
 // ── Health check ──────────────────────────────────────────────
 app.get("/", (req, res) => {
