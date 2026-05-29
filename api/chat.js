@@ -194,12 +194,6 @@ export default async function handler(req, res) {
 
       await newMsg.save();
 
-      if (disappearSecs > 0) {
-        setTimeout(async () => {
-          try { await Chat.findByIdAndDelete(newMsg._id); } catch (_) {}
-        }, disappearSecs * 1000);
-      }
-
       return res.status(201).json({ message: "Message send ho gaya ✅", data: newMsg });
     } catch (error) {
       return res.status(500).json({ message: "Server error", error: error.message });
