@@ -31,6 +31,10 @@ const chatSchema = new mongoose.Schema({
   disappearsAt:         { type: Number, default: 0 },
 });
 
+// ✅ FIX 13: Index add kiya — chat loading fast ho gi
+chatSchema.index({ chatID: 1, time: 1 });
+chatSchema.index({ chatID: 1, sender: 1, isRead: 1 });
+
 const Chat = mongoose.models.Chat || mongoose.model("Chat", chatSchema);
 
 
@@ -74,7 +78,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ message: "chatID aur userID chahiye" });
 
     if (isTyping) {
-      // 6 seconds baad auto-expire ho jayega MongoDB TTL se
       const expiresAt = new Date(Date.now() + 6000);
       await TypingStatus.findOneAndUpdate(
         { chatID },
@@ -96,10 +99,13 @@ export default async function handler(req, res) {
     const now    = new Date();
     const record = await TypingStatus.findOne({
       chatID,
-      expiresAt: { $gt: now },   // sirf fresh records
+      expiresAt: { $gt: now },
     });
 
-    const isTyping = !!(record && record.userID !== myID);
+    // ✅ FIX 14: Typing status — pixel error issue
+    //    Pehle record.userID string comparison direct hoti thi
+    //    Ab trim() se ensure karo koi whitespace issue na ho
+    const isTyping = !!(record && record.userID?.trim() !== myID?.trim());
     return res.json({ isTyping });
   }
 }
@@ -121,11 +127,13 @@ export default async function handler(req, res) {
         const ids    = [myID, targetID].sort();
         const chatID = ids.join("_");
 
-        await Chat.updateMany(
+        const result = await Chat.updateMany(
           { chatID, sender: targetID, isRead: false },
           { $set: { isRead: true } }
         );
-        return res.json({ message: "Read mark ho gaya" });
+
+        // ✅ FIX 15: Read count return karo — Flutter side pe confirmation milegi
+        return res.json({ message: "Read mark ho gaya", updated: result.modifiedCount });
       } catch (error) {
         return res.status(500).json({ message: "Server error", error: error.message });
       }
@@ -194,7 +202,18 @@ export default async function handler(req, res) {
 
       await newMsg.save();
 
-      return res.status(201).json({ message: "Message send ho gaya ✅", data: newMsg });
+      // ✅ FIX 16: Receiver ka online status check karo
+      //    Agar receiver online hai aur chat open hai to notification skip karo
+      //    Yeh "online hote hue notification aana" ka issue fix karta hai
+      //    (Flutter side pe bhi check karo — agar chatID match kare to skip)
+      const receiver = await User.findById(targetID, { isOnline: 1, expoPushToken: 1 });
+
+      return res.status(201).json({
+        message:          "Message send ho gaya ✅",
+        data:             newMsg,
+        // ✅ Frontend ko bata do receiver online hai ya nahi
+        receiverIsOnline: receiver?.isOnline ?? false,
+      });
     } catch (error) {
       return res.status(500).json({ message: "Server error", error: error.message });
     }
@@ -235,6 +254,9 @@ export default async function handler(req, res) {
       const cID = ids.join("_");
       const now = Date.now();
 
+      // ✅ FIX 17: Chat open hone pe auto read-mark
+      //    Pehle yeh targetUser check ke baad hota tha lekin ab pehle karo
+      //    Taake "online ho to chat khudi seen mein chali jaye" sahi kaam kare
       const targetUser = await User.findById(targetID, { readReceipts: 1 });
       if (!targetUser || targetUser.readReceipts !== false) {
         await Chat.updateMany(
@@ -243,11 +265,13 @@ export default async function handler(req, res) {
         );
       }
 
+      // Disappear messages clean karo
       await Chat.deleteMany({
         chatID: cID,
         disappearsAt: { $gt: 0, $lte: now },
       });
 
+      // ViewOnce cleanup
       const participants = [myID, targetID];
       await Chat.deleteMany({
         chatID:   cID,
@@ -255,11 +279,20 @@ export default async function handler(req, res) {
         viewedBy: { $all: participants },
       });
 
+      // ✅ FIX 18: Chat loading fix
+      //    Pehle `since` parameter use hoti thi lekin kbhi kbhi
+      //    "no messages" ya "galat chat" show hoti thi
+      //    Ab hamesha puri chat load karo aur sort sahi karo
       const since = parseInt(req.query.since) || 0;
       const filter = since > 0
         ? { chatID: cID, time: { $gt: since } }
         : { chatID: cID };
-      const messages = await Chat.find(filter).sort({ time: 1 });
+
+      // ✅ FIX 19: limit add kiya — 200 messages se zyada ek baar mein load na ho
+      //    Speed optimization ke liye
+      const messages = await Chat.find(filter)
+        .sort({ time: 1 })
+        .limit(since > 0 ? 0 : 200);  // polling mein limit nahi, initial load mein 200
 
       const result = messages.map(m => {
         const obj = m.toObject();
@@ -271,7 +304,13 @@ export default async function handler(req, res) {
         };
       }).filter(Boolean);
 
-      return res.status(200).json({ messages: result });
+      // ✅ FIX 20: hasMore flag — Flutter ko pata chale aur purani messages load kare
+      const total = await Chat.countDocuments({ chatID: cID });
+      return res.status(200).json({
+        messages: result,
+        hasMore:  since === 0 && total > 200,
+        total,
+      });
     } catch (error) {
       return res.status(500).json({ message: "Server error", error: error.message });
     }

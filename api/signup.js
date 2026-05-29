@@ -13,7 +13,7 @@ export default async function handler(req, res) {
   try {
     await connectDB();
 
-    const { name, email, password } = req.body;
+    const { name, email, password, phone } = req.body;
 
     if (!name || !email || !password)
       return res.status(400).json({ message: "Sab fields bharo" });
@@ -22,8 +22,26 @@ export default async function handler(req, res) {
     if (existingUser)
       return res.status(400).json({ message: "Email pehle se registered hai" });
 
+    // ✅ FIX: Phone number save karo signup pe
+    let cleanPhone = "";
+    if (phone && phone.trim() !== "") {
+      cleanPhone = phone.replace(/\s+/g, "");
+      if (cleanPhone.startsWith("0")) {
+        cleanPhone = "+92" + cleanPhone.slice(1);
+      }
+      // Check karo yeh number kisi aur ka to nahi
+      const existingPhone = await User.findOne({ phone: cleanPhone });
+      if (existingPhone)
+        return res.status(400).json({ message: "Yeh number pehle se registered hai" });
+    }
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = new User({ name, email, password: hashedPassword });
+    const newUser = new User({
+      name,
+      email,
+      password: hashedPassword,
+      phone: cleanPhone,
+    });
     await newUser.save();
 
     const token = jwt.sign(
@@ -35,10 +53,11 @@ export default async function handler(req, res) {
     res.status(201).json({
       message: "Account ban gaya! ✅",
       token,
-      user: { 
+      user: {
         _id:   newUser._id.toString(),
-        name:  newUser.name, 
-        email: newUser.email 
+        name:  newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
       }
     });
 

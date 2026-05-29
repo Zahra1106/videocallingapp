@@ -71,13 +71,13 @@ export default async function handler(req, res) {
       return res.status(200).json({
         name:  user.name,
         email: user.email,
+        // ✅ FIX: Phone number profile GET mein bhi return karo
+        phone: user.phone ?? "",
         image: user.image ?? "",
         bio:   user.bio   ?? "Hey there! I am using ZunO",
 
-        // ── Privacy fields ──────────────────────────────────
-        picPrivacy:      user.picPrivacy     ?? "everyone",
-        // ✅ NEW: picExceptList — jinhe profile pic nahi dikhani
-        picExceptList:   user.picExceptList  ?? [],
+        picPrivacy:      user.picPrivacy      ?? "everyone",
+        picExceptList:   user.picExceptList   ?? [],
         lastSeenPrivacy: user.lastSeenPrivacy ?? "everyone",
         lastSeenTime:    user.lastSeenTime    ?? null,
         hideOnline:      user.hideOnline      ?? false,
@@ -86,7 +86,7 @@ export default async function handler(req, res) {
         silenceUnknown:  user.silenceUnknown  ?? false,
       });
     } catch (e) {
-      return res.status(500).json({ message: "Server error", error: e.message });
+      return res.status(500).json({ error: e.message });
     }
   }
 
@@ -95,9 +95,11 @@ export default async function handler(req, res) {
     try {
       const {
         userID,
+        name,
         bio,
+        phone,           // ✅ FIX: Phone update support
         picPrivacy,
-        picExceptList,   // ✅ NEW
+        picExceptList,
         lastSeen,
         hideOnline,
         aboutPrivacy,
@@ -110,40 +112,51 @@ export default async function handler(req, res) {
 
       const updateFields = {};
 
-      // Bio
+      if (name !== undefined && name.trim() !== "") {
+        updateFields.name = name.trim();
+      }
+
       if (bio !== undefined) {
         updateFields.bio = bio;
       }
 
-      // Profile photo privacy
+      // ✅ FIX: Phone number update karo (with format cleanup)
+      if (phone !== undefined && phone.trim() !== "") {
+        let cleanPhone = phone.replace(/\s+/g, "");
+        if (cleanPhone.startsWith("0")) {
+          cleanPhone = "+92" + cleanPhone.slice(1);
+        }
+        // Check duplicate — apne alawa koi aur same number na rakhe
+        const existing = await User.findOne({ phone: cleanPhone, _id: { $ne: userID } });
+        if (existing)
+          return res.status(400).json({ message: "Yeh number pehle se registered hai" });
+        updateFields.phone = cleanPhone;
+      }
+
       if (picPrivacy !== undefined) {
-        const allowed = ["everyone", "contacts_except", "nobody"]; // ✅ updated
+        const allowed = ["everyone", "contacts_except", "nobody"];
         if (!allowed.includes(picPrivacy))
           return res.status(400).json({ message: "Invalid picPrivacy option" });
         updateFields.picPrivacy = picPrivacy;
       }
 
-      // ✅ NEW: picExceptList — array of userIDs
       if (picExceptList !== undefined) {
         if (!Array.isArray(picExceptList))
           return res.status(400).json({ message: "picExceptList array hona chahiye" });
         updateFields.picExceptList = picExceptList;
       }
 
-      // Last Seen
       if (lastSeen !== undefined) {
         const allowed = ["everyone", "contacts", "nobody"];
         if (!allowed.includes(lastSeen))
           return res.status(400).json({ message: "Invalid lastSeen option" });
-        updateFields.lastSeen = lastSeen;
+        updateFields.lastSeenPrivacy = lastSeen;
       }
 
-      // Online Status hide
       if (hideOnline !== undefined) {
         updateFields.hideOnline = Boolean(hideOnline);
       }
 
-      // About Privacy
       if (aboutPrivacy !== undefined) {
         const allowed = ["everyone", "contacts", "nobody"];
         if (!allowed.includes(aboutPrivacy))
@@ -151,17 +164,15 @@ export default async function handler(req, res) {
         updateFields.aboutPrivacy = aboutPrivacy;
       }
 
-      // Read Receipts
       if (readReceipts !== undefined) {
         updateFields.readReceipts = Boolean(readReceipts);
       }
 
-      // Silence Unknown Callers
       if (silenceUnknown !== undefined) {
         updateFields.silenceUnknown = Boolean(silenceUnknown);
       }
 
-      await User.findByIdAndUpdate(userID, updateFields);
+      await User.findByIdAndUpdate(userID, { $set: updateFields });
 
       return res.status(200).json({ message: "Profile update ho gayi ✅" });
     } catch (e) {

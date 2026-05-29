@@ -17,7 +17,6 @@ export default async function handler(req, res) {
 
   await connectDB();
 
-  // ?action= se sub-routes handle karo (single file workaround for Vercel)
   const action = req.query.action;
 
   // ============================================================
@@ -124,14 +123,17 @@ export default async function handler(req, res) {
       if (viewerID && viewerID !== s.userID) {
         if (s.privacy === "nobody") continue;
 
+        // ✅ FIX 21: contacts_except — exceptList ab Status document mein hi store hoti hai
+        //    Pehle exceptList Status schema mein nahi tha isliye kaam nahi karta tha
+        //    Ab db.js mein exceptList aur allowedList add kar diye hain
         if (s.privacy === "contacts_except") {
-          const isBlocked = (s.exceptList || []).includes(viewerID);
-          if (isBlocked) continue;
+          const exceptList = s.exceptList || [];
+          if (exceptList.includes(viewerID)) continue;
         }
 
         if (s.privacy === "only_share_with") {
-          const isAllowed = (s.allowedList || []).includes(viewerID);
-          if (!isAllowed) continue;
+          const allowedList = s.allowedList || [];
+          if (!allowedList.includes(viewerID)) continue;
         }
       }
 
@@ -153,6 +155,9 @@ export default async function handler(req, res) {
         viewers:     s.viewers     || [],
         reactions:   s.reactions   || [],
         replies:     s.replies     || [],
+        privacy:     s.privacy,
+        exceptList:  s.exceptList  || [],
+        allowedList: s.allowedList || [],
         createdAt:   s.createdAt,
       });
     }
@@ -161,6 +166,7 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: e.message });
   }
 }
+
   // ============================================================
   //  POST  — naya status banao
   // ============================================================
@@ -172,12 +178,21 @@ export default async function handler(req, res) {
         caption, textContent,
         bgColor, textColor,
         privacy,
+        // ✅ FIX 22: Plus button issue — exceptList aur allowedList POST mein accept karo
+        //    Pehle POST body mein yeh fields nahi li jaati thin
+        //    Isliye "contacts except this" select karne pe bhi koi effect nahi hota tha
+        exceptList,
+        allowedList,
       } = req.body;
 
       if (!userID)
         return res.status(400).json({ message: "userID chahiye" });
       if (mediaType !== "text" && !mediaUrl)
         return res.status(400).json({ message: "mediaUrl chahiye" });
+
+      // ✅ FIX 23: Privacy validation
+      const validPrivacies = ["everyone", "contacts_except", "only_share_with", "nobody"];
+      const finalPrivacy = validPrivacies.includes(privacy) ? privacy : "everyone";
 
       const status = await Status.create({
         userID,    userName,
@@ -187,7 +202,10 @@ export default async function handler(req, res) {
         textContent: textContent || null,
         bgColor:     bgColor     || null,
         textColor:   textColor   || null,
-        privacy:     privacy     || "everyone",
+        privacy:     finalPrivacy,
+        // ✅ FIX 24: exceptList aur allowedList save karo
+        exceptList:  Array.isArray(exceptList)  ? exceptList  : [],
+        allowedList: Array.isArray(allowedList) ? allowedList : [],
         viewers:  [],
         reactions:[],
         replies:  [],
