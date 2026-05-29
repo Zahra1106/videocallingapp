@@ -212,54 +212,7 @@ export default async function handler(req, res) {
   // ── NOTIFY CALL (Expo Push) ───────────────────────────────
   // ✅ UPDATED: Ab CallLog bhi save hoga status: 'ringing' ke saath
 
-  if (req.method === "POST" && path === "notify-call") {
-    const { callerID, callerName, calleeID, calleeName, callID, callType } = req.body;
-
-    if (!callerID || !calleeID || !callID)
-      return res.status(400).json({ message: "callerID, calleeID, callID chahiye" });
-
-    try {
-      const receiver = await User.findById(calleeID, { expoPushToken: 1, name: 1 });
-
-      if (!receiver || !receiver.expoPushToken)
-        return res.status(404).json({ message: "Receiver ka Expo push token nahi mila" });
-
-      // ✅ CallLog save karo status: 'ringing' ke saath
-      await CallLog.findOneAndUpdate(
-        { callID },
-        {
-          $setOnInsert: {
-            callID,
-            callerID,
-            callerName:  callerName  ?? "Unknown",
-            calleeID,
-            calleeName:  calleeName  ?? receiver.name ?? "Unknown",
-            type:        "incoming",
-            callType:    callType    ?? "audio",
-            status:      "ringing",
-            startedAt:   new Date(),
-          },
-        },
-        { upsert: true, new: true }
-      );
-
-      await sendExpoPushNotification({
-        expoPushToken: receiver.expoPushToken,
-        title: `📞 ${callerName ?? "Someone"} ka call aa raha hai`,
-        body:  "Tap karo receive karne ke liye",
-        data:  {
-          type:       "incoming_call",
-          callerName: callerName ?? "Unknown",
-          callID,
-          receiverID: calleeID,
-        },
-      });
-
-      return res.status(200).json({ message: "Call notification bhej di ✅" });
-    } catch (e) {
-      return res.status(500).json({ message: "Expo Push error", error: e.message });
-    }
-  }
+  
 
   // ── PENDING CALL (Flutter polling) ───────────────────────
   // ✅ NEW: Flutter har 5 sec mein yeh hit karta hai
@@ -514,6 +467,31 @@ export default async function handler(req, res) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }
   }
+  // ── CALL STATUS UPDATE ────────────────────────────────────
+if (req.method === "PATCH" && path === "call-status") {
+  const { callID, status } = req.body;
+  if (!callID || !status)
+    return res.status(400).json({ message: "callID aur status chahiye" });
+
+  try {
+    const validStatuses = ["ringing", "accepted", "declined", "missed", "ended"];
+    if (!validStatuses.includes(status))
+      return res.status(400).json({ message: "Invalid status" });
+
+    const log = await CallLog.findOneAndUpdate(
+      { callID },
+      { $set: { status, endedAt: ["ended", "declined", "missed"].includes(status) ? new Date() : null } },
+      { new: true }
+    );
+
+    if (!log)
+      return res.status(404).json({ message: "Call log nahi mila" });
+
+    return res.status(200).json({ message: "Status update ho gaya ✅", status });
+  } catch (e) {
+    return res.status(500).json({ message: "Server error", error: e.message });
+  }
+}
 
   return res.status(404).json({ message: "Route nahi mila", method: req.method, url: fullUrl, path });
 }
