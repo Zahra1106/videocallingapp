@@ -1,5 +1,25 @@
-import { connectDB, Group } from "../lib/db.js";
+import { connectDB, Group, User } from "../lib/db.js";
 import mongoose from "mongoose";
+import fetch from "node-fetch";
+
+// naya: group message aane pe members ko push notification bhejne ka helper
+async function sendGroupMessagePush({ expoPushToken, title, preview }) {
+  try {
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({
+        to:    expoPushToken,
+        sound: "default",
+        title,
+        body:  preview,
+        data:  { type: "new_group_message" },
+      }),
+    });
+  } catch (e) {
+    console.error("Group message push error (ignored):", e.message);
+  }
+}
 
 // ─── SCHEMAS ──────────────────────────────────────────────────
 
@@ -439,6 +459,22 @@ export default async function handler(req, res) {
           lastMessageTime: new Date(),
         },
       });
+
+      // naya: sender ke ilawa baaki members ko (jo online nahi) push notification bhejo
+      const otherMembers = (group.members || []).filter(m => m !== senderID);
+      if (otherMembers.length > 0) {
+        const recipients = await User.find(
+          { _id: { $in: otherMembers }, isOnline: { $ne: true }, expoPushToken: { $exists: true, $ne: "" } },
+          { expoPushToken: 1 }
+        );
+        for (const r of recipients) {
+          sendGroupMessagePush({
+            expoPushToken: r.expoPushToken,
+            title:         `${senderName || "Someone"} • ${group.name}`,
+            preview,
+          });
+        }
+      }
 
       return res.status(201).json({
         message: "Message send ho gaya ✅",

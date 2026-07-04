@@ -30,6 +30,11 @@ export default async function handler(req, res) {
       if (!statusID || !viewerID)
         return res.status(400).json({ message: "statusID aur viewerID chahiye" });
 
+      // naya: safety-net — apni khud ki status pe view record na ho
+      const targetStatus = await Status.findById(statusID, { userID: 1 });
+      if (targetStatus && targetStatus.userID === viewerID)
+        return res.status(200).json({ message: "Apni status hai, view skip" });
+
       await Status.updateOne(
         { _id: statusID, "viewers.viewerID": { $ne: viewerID } },
         { $push: { viewers: { viewerID, viewerName, viewedAt: new Date() } } }

@@ -95,6 +95,14 @@ async function sendExpoPushNotification({ expoPushToken, title, body, data }) {
   });
 }
 
+// ─── HELPER: FCM Push Notification ───────────────────────────
+// NOTE: Legacy FCM API (fcm.googleapis.com/fcm/send) Google ne
+// permanently band kar di hai (June 2024). Jab Firebase service
+// account JSON mil jaye, yahan FCM v1 (firebase-admin) add karenge.
+// Abhi ke liye Expo push hi call-notify ka reliable rasta hai.
+async function sendFCMNotification() {
+  return; // disabled — legacy FCM endpoint dead hai
+}
 // ─── MAIN HANDLER ─────────────────────────────────────────────
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin",  "*");
@@ -116,6 +124,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ message: "callerID, calleeID, callID chahiye" });
 
   try {
+    // naya: agar calleeID ne "silence unknown callers" on kar rakha hai
+    // aur callerID unka jaana-pehchana contact nahi hai to call silence karo
+    const silenced = await isSilenced(callerID, calleeID);
+    if (silenced)
+      return res.status(403).json({ message: "Receiver unknown calls silence karta hai 🔕", silenced: true });
+
+    // naya: agar calleeID ne callerID ko block kar rakha hai to call na jaye
+    const BlockModel = mongoose.models.Block;
+    if (BlockModel) {
+      const blocked = await BlockModel.findOne({ blockerID: calleeID, blockedID: callerID });
+      if (blocked)
+        return res.status(403).json({ message: "Yeh user ne aapko block kiya hai", blocked: true });
+    }
+
     const receiver = await User.findById(calleeID, { expoPushToken: 1, name: 1 });
 
     // ✅ FIX 1: Pehle CallLog save karo — token ho ya na ho
@@ -155,6 +177,22 @@ export default async function handler(req, res) {
         console.error("Push notification error (ignored):", pushErr.message);
       }
     }
+    if (receiver?.fcmToken) {
+  await sendFCMNotification({
+    fcmToken: receiver.fcmToken,
+    title: `📞 ${callerName ?? "Someone"} ka call`,
+    body:  "Tap karo receive karne ke liye",
+    data: {
+      type:       "incoming_call",
+      callerID,
+      callerName: callerName ?? "Unknown",
+      callID,
+      receiverID: calleeID,
+      callType:   callType ?? "audio",
+    },
+  });
+}
+
 
     // ✅ Hamesha 200 return karo — polling kaam karegi
     return res.status(200).json({ message: "Call initiated ✅" });
@@ -175,16 +213,26 @@ export default async function handler(req, res) {
 
       const logs = await CallLog.find(filter).sort({ startedAt: -1 }).limit(Number(limit));
       return res.status(200).json({
-        logs: logs.map(l => ({
-          id: l._id, callID: l.callID,
-          callerID: l.callerID, callerName: l.callerName,
-          calleeID: l.calleeID, calleeName: l.calleeName,
-          type: l.type, callType: l.callType,
-          status: l.status,
-          duration: l.duration, startedAt: l.startedAt,
-          endedAt: l.endedAt, isGroupCall: l.isGroupCall,
-          participants: l.participants, recordingUrl: l.recordingUrl,
-        })),
+        logs: logs.map(l => {
+          // naya: type ab har viewing user ke apne perspective se nikalo
+          // (pehle ek hi shared 'type' value dono users ko dikhti thi,
+          // isliye receiver ko bhi "outgoing" dikhta tha aur "missed" kabhi nahi)
+          const missedLike = ["missed", "declined"].includes(l.status);
+          const viewerType = userID === l.callerID
+            ? "outgoing"
+            : missedLike ? "missed" : "incoming";
+
+          return {
+            id: l._id, callID: l.callID,
+            callerID: l.callerID, callerName: l.callerName,
+            calleeID: l.calleeID, calleeName: l.calleeName,
+            type: viewerType, callType: l.callType,
+            status: l.status,
+            duration: l.duration, startedAt: l.startedAt,
+            endedAt: l.endedAt, isGroupCall: l.isGroupCall,
+            participants: l.participants, recordingUrl: l.recordingUrl,
+          };
+        }),
       });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
@@ -232,6 +280,11 @@ export default async function handler(req, res) {
 
       if (!pendingCall)
         return res.status(200).json({ hasPendingCall: false });
+
+      // status yahan change NAHI karna — abhi sirf "ring dikhayi" hai,
+      // receiver ne accept/decline nahi kiya. Real status update
+      // Accept/Decline button dabane pe CallController/IncomingCallScreen
+      // khud karte hain. Duplicate popup client-side already guard hai.
 
       return res.status(200).json({
         hasPendingCall: true,
@@ -469,7 +522,7 @@ export default async function handler(req, res) {
   }
   // ── CALL STATUS UPDATE ────────────────────────────────────
 if (req.method === "PATCH" && path === "call-status") {
-  const { callID, status } = req.body;
+  const { callID, status, duration } = req.body;
   if (!callID || !status)
     return res.status(400).json({ message: "callID aur status chahiye" });
 
@@ -478,9 +531,16 @@ if (req.method === "PATCH" && path === "call-status") {
     if (!validStatuses.includes(status))
       return res.status(400).json({ message: "Invalid status" });
 
+    const update = {
+      status,
+      endedAt: ["ended", "declined", "missed"].includes(status) ? new Date() : null,
+    };
+    // naya: duration bhi save karo (agar bheji gayi ho)
+    if (typeof duration === "number" && duration >= 0) update.duration = duration;
+
     const log = await CallLog.findOneAndUpdate(
       { callID },
-      { $set: { status, endedAt: ["ended", "declined", "missed"].includes(status) ? new Date() : null } },
+      { $set: update },
       { new: true }
     );
 
@@ -492,6 +552,20 @@ if (req.method === "PATCH" && path === "call-status") {
     return res.status(500).json({ message: "Server error", error: e.message });
   }
 }
+
+  // ── CALL STATUS CHECK (caller polling ke liye) ────────────
+  if (req.method === "GET" && path === "call-status-check") {
+    const { callID } = req.query;
+    if (!callID) return res.status(400).json({ message: "callID chahiye" });
+
+    try {
+      const log = await CallLog.findOne({ callID }, { status: 1 });
+      if (!log) return res.status(404).json({ message: "Call nahi mili" });
+      return res.status(200).json({ status: log.status });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
 
   return res.status(404).json({ message: "Route nahi mila", method: req.method, url: fullUrl, path });
 }

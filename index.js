@@ -95,8 +95,10 @@ app.all("/api/block",       blockRoutesHandler);
 app.all("/api/blocklist",   blockRoutesHandler);
 app.all("/api/blockcheck",  blockRoutesHandler);
 // ── Call Notification (FCM) ───────────────────────────────────
+app.all("/api/communication/notify-call",  communicationHandler); // ✅ pehle se hai
 app.all("/api/communication/pending-call", communicationHandler); // ✅ YEH ADD KARO
-app.all("/api/communication/call-status",  communicationHandler); // ✅ YEH BHI ADD KARO
+app.all("/api/communication/call-status",        communicationHandler); // ✅ YEH BHI ADD KARO
+app.all("/api/communication/call-status-check",  communicationHandler); // ✅ caller polling
 
 // Routes section mein add karo
 app.all("/api/profile",        profileHandler);

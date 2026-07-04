@@ -1,5 +1,25 @@
 import mongoose from "mongoose";
 import { connectDB, User, ChatMeta, TypingStatus } from "../lib/db.js";
+import fetch from "node-fetch";
+
+// naya: message aane pe push notification bhejne ka helper
+async function sendMessagePush({ expoPushToken, senderName, preview }) {
+  try {
+    await fetch("https://exp.host/--/api/v2/push/send", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      body: JSON.stringify({
+        to:    expoPushToken,
+        sound: "default",
+        title: senderName || "Naya message",
+        body:  preview || "Aapko naya message aaya hai",
+        data:  { type: "new_message" },
+      }),
+    });
+  } catch (e) {
+    console.error("Message push error (ignored):", e.message);
+  }
+}
 
 const chatSchema = new mongoose.Schema({
   chatID:          { type: String, required: true },
@@ -163,6 +183,14 @@ export default async function handler(req, res) {
       if (!myID || !targetID)
         return res.status(400).json({ message: "myID aur targetID chahiye" });
 
+      // naya: agar targetID ne myID ko block kar rakha hai to message na jaye
+      const BlockModel = mongoose.models.Block;
+      if (BlockModel) {
+        const blocked = await BlockModel.findOne({ blockerID: targetID, blockedID: myID });
+        if (blocked)
+          return res.status(403).json({ message: "Yeh user ne aapko block kiya hai" });
+      }
+
       const hasContent =
         message?.trim() || voiceUrl?.trim() || imageUrl?.trim() ||
         documentUrl?.trim() || location;
@@ -206,7 +234,24 @@ export default async function handler(req, res) {
       //    Agar receiver online hai aur chat open hai to notification skip karo
       //    Yeh "online hote hue notification aana" ka issue fix karta hai
       //    (Flutter side pe bhi check karo — agar chatID match kare to skip)
-      const receiver = await User.findById(targetID, { isOnline: 1, expoPushToken: 1 });
+      const receiver = await User.findById(targetID, { isOnline: 1, expoPushToken: 1, name: 1 });
+
+      // naya: push notification actually bhejo — pehle token sirf fetch hota tha, use nahi hota tha
+      if (receiver?.expoPushToken && !receiver.isOnline) {
+        const sender = await User.findById(myID, { name: 1 });
+        const preview = message?.trim()
+          ? message
+          : voiceUrl ? "🎤 Voice message"
+          : imageUrl ? "📷 Photo"
+          : documentUrl ? "📄 Document"
+          : location ? "📍 Location"
+          : "Naya message";
+        sendMessagePush({
+          expoPushToken: receiver.expoPushToken,
+          senderName:    sender?.name || "Naya message",
+          preview,
+        });
+      }
 
       return res.status(201).json({
         message:          "Message send ho gaya ✅",
@@ -290,9 +335,9 @@ export default async function handler(req, res) {
 
       // ✅ FIX 19: limit add kiya — 200 messages se zyada ek baar mein load na ho
       //    Speed optimization ke liye
-      const messages = await Chat.find(filter)
-        .sort({ time: 1 })
-        .limit(since > 0 ? 0 : 200);  // polling mein limit nahi, initial load mein 200
+      const messages = since > 0
+        ? await Chat.find(filter).sort({ time: 1 })
+        : await Chat.find(filter).sort({ time: -1 }).limit(200).then(arr => arr.reverse());
 
       const result = messages.map(m => {
         const obj = m.toObject();
