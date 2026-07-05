@@ -73,7 +73,10 @@ export default async function handler(req, res) {
   // ══════════════════════════════════════════════════════════
   //  CHAT META POST — savemeta
   // ══════════════════════════════════════════════════════════
-  if (action === "savemeta") {
+  // ✅ FIX: savemeta route — pehle sirf req.query.action check hota tha
+  // jo /api/chat/savemeta pe undefined aata tha (Flutter action query
+  // param nahi bhejta). Ab URL path se bhi detect karo.
+  if (action === "savemeta" || url.includes("/savemeta")) {
     const { userID, favourites, archived, lockedChats, lockCode } = req.body;
     if (!userID)
       return res.status(400).json({ message: "userID chahiye" });
@@ -236,8 +239,9 @@ export default async function handler(req, res) {
       //    (Flutter side pe bhi check karo — agar chatID match kare to skip)
       const receiver = await User.findById(targetID, { isOnline: 1, expoPushToken: 1, name: 1 });
 
-      // naya: push notification actually bhejo — pehle token sirf fetch hota tha, use nahi hota tha
-      if (receiver?.expoPushToken && !receiver.isOnline) {
+      // ✅ FIX: sirf valid Expo push token pe push bhejo. FCM token
+      // (firebase_messaging) Expo API pe kaam nahi karta — prefix check.
+      if (receiver?.expoPushToken && receiver.expoPushToken.startsWith("ExponentPushToken") && !receiver.isOnline) {
         const sender = await User.findById(myID, { name: 1 });
         const preview = message?.trim()
           ? message
@@ -428,10 +432,31 @@ export default async function handler(req, res) {
   }
 
   // ══════════════════════════════════════════════════════════
-  //  DELETE — for me / for everyone
+  //  DELETE — for me / for everyone / CLEAR WHOLE CHAT
   // ══════════════════════════════════════════════════════════
   else if (req.method === "DELETE") {
     try {
+      // ✅ FIX: CLEAR CHAT — query params se aata hai (chatID + myID)
+      //    Pehle yeh handle nahi hota tha — sirf messageID wala DELETE
+      //    chalta tha, isliye HomeController.clearChat fail karta tha.
+      //    Ab agar messageID nahi hai lekin chatID + myID query mein
+      //    hain to poori chat clear karo (sab messages deletedFor mein).
+      const qChatID = req.query.chatID;
+      const qMyID   = req.query.myID;
+      if (!req.body?.messageID && qChatID && qMyID) {
+        // Saare messages jismein myID ne delete nahi kiya, unhe deletedFor
+        // mein add karo. Hard delete nahi — taaki doosre user ko messages
+        // abhi bhi dikhein.
+        await Chat.updateMany(
+          { chatID: qChatID, deletedFor: { $ne: qMyID } },
+          { $push: { deletedFor: qMyID } }
+        );
+        return res.status(200).json({
+          message: "Chat clear ho gayi 🗑️",
+          cleared: true,
+        });
+      }
+
       const { messageID, userID, deleteForEveryone = false } = req.body;
 
       if (!messageID || !userID)

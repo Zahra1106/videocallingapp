@@ -159,8 +159,11 @@ export default async function handler(req, res) {
       { upsert: true, new: true }
     );
 
-    // ✅ FIX 2: Push notification optional hai — polling kaam karegi
-    if (receiver?.expoPushToken) {
+    // ✅ FIX: Push notification mein POORA call data bhejo
+    //    Pehle sirf callerName + callID + receiverID tha — callerID
+    //    aur callType missing the, isliye Flutter IncomingCallScreen
+    //    ko callerID nahi milta tha aur accept/decline fail hoti thi.
+    if (receiver?.expoPushToken && receiver.expoPushToken.startsWith("ExponentPushToken")) {
       try {
         await sendExpoPushNotification({
           expoPushToken: receiver.expoPushToken,
@@ -168,30 +171,24 @@ export default async function handler(req, res) {
           body:  "Tap karo receive karne ke liye",
           data:  {
             type:       "incoming_call",
+            callerID,
             callerName: callerName ?? "Unknown",
+            calleeID,
+            calleeName: calleeName ?? receiver?.name ?? "Unknown",
             callID,
             receiverID: calleeID,
+            callType:   callType ?? "audio",
+            isGroupCall: false,
           },
         });
       } catch (pushErr) {
         console.error("Push notification error (ignored):", pushErr.message);
       }
     }
-    if (receiver?.fcmToken) {
-  await sendFCMNotification({
-    fcmToken: receiver.fcmToken,
-    title: `📞 ${callerName ?? "Someone"} ka call`,
-    body:  "Tap karo receive karne ke liye",
-    data: {
-      type:       "incoming_call",
-      callerID,
-      callerName: callerName ?? "Unknown",
-      callID,
-      receiverID: calleeID,
-      callType:   callType ?? "audio",
-    },
-  });
-}
+    // FCM v1 (firebase-admin) — legacy HTTP fcm.googleapis.com band hai.
+    // sendFCMNotification() abhi no-op hai. Jab service account JSON mile
+    // tab firebase-admin add karke yahan enable karenge.
+    // (receiver.fcmToken field ab use nahi hoti — Expo push hi primary hai.)
 
 
     // ✅ Hamesha 200 return karo — polling kaam karegi
@@ -252,6 +249,54 @@ export default async function handler(req, res) {
 
       await CallLog.findByIdAndDelete(callLogID);
       return res.json({ message: "Call log delete ho gaya ✅" });
+    } catch (e) {
+      return res.status(500).json({ message: "Server error", error: e.message });
+    }
+  }
+
+  // ── CALL LOGS — POST (Flutter CallController.saveCallLog hit karta hai) ──
+  // ✅ FIX: pehle POST handler missing tha — sirf GET aur DELETE the.
+  //    Flutter call end hone pe POST bhejta tha but yahan catch nahi
+  //    hoti thi, isliye log save nahi hota tha (sirf notify-call pe
+  //    upsert hoti thi). Ab explicit POST handler.
+  if (req.method === "POST" && path === "calllogs") {
+    const {
+      callID, callerID, callerName,
+      calleeID, calleeName, type,
+      callType = "audio", isGroupCall = false,
+      duration = 0, status, participants = [],
+    } = req.body;
+
+    if (!callID || !callerID || !calleeID)
+      return res.status(400).json({ message: "callID, callerID, calleeID chahiye" });
+
+    try {
+      const validTypes   = ["incoming", "outgoing", "missed"];
+      const validStatus  = ["ringing", "accepted", "declined", "missed", "ended"];
+      const finalType    = validTypes.includes(type) ? type : "incoming";
+      const finalStatus  = validStatus.includes(status) ? status
+                          : (type === "missed" ? "missed" : "ended");
+
+      const log = await CallLog.findOneAndUpdate(
+        { callID },
+        {
+          $set: {
+            callID,
+            callerID,   callerName: callerName ?? "Unknown",
+            calleeID,   calleeName: calleeName ?? "Unknown",
+            type:       finalType,
+            callType,
+            status:     finalStatus,
+            isGroupCall: Boolean(isGroupCall),
+            duration:   Number(duration) || 0,
+            endedAt:    ["ended", "declined", "missed"].includes(finalStatus) ? new Date() : null,
+            ...(Array.isArray(participants) && participants.length ? { participants } : {}),
+          },
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+
+      return res.status(201).json({ message: "Call log save ho gaya ✅", log });
     } catch (e) {
       return res.status(500).json({ message: "Server error", error: e.message });
     }

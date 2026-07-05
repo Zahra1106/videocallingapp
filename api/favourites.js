@@ -1,5 +1,5 @@
 // api/favourites.js
-import { User } from "../lib/db.js";
+import { connectDB } from "../lib/db.js";
 import mongoose from "mongoose";
 
 const favSchema = new mongoose.Schema({
@@ -14,13 +14,24 @@ export const Favourite = mongoose.models.Favourite ||
   mongoose.model("Favourite", favSchema);
 
 export default async function favouritesHandler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin",  "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+
+  if (req.method === "OPTIONS") return res.status(200).end();
+
+  // ✅ FIX: connectDB pehle call nahi ho raha tha — isliye Favourite
+  // model queries crash karte the. Ab yahan connect karo.
+  await connectDB();
+
   const url = req.url.split("?")[0];
 
   // ── GET /api/favourites?userID=xxx ─────────────────────────
   if (req.method === "GET") {
     const { userID } = req.query;
+    if (!userID) return res.status(400).json({ message: "userID chahiye" });
     try {
-      const favs = await Favourite.find({ userID });
+      const favs = await Favourite.find({ userID }).sort({ addedAt: -1 });
       return res.json({ favourites: favs });
     } catch (e) {
       return res.status(500).json({ message: e.message });

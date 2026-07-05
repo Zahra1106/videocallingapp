@@ -75,9 +75,6 @@ app.all("/api/communication/companion-verify",   communicationHandler);
 app.all("/api/communication/companion-devices",  communicationHandler);
 app.all("/api/communication/companion-unlink",   communicationHandler);
 app.all("/api/communication/companion-active",   communicationHandler);
-// ── Call Notification (FCM) ───────────────────────────────────
-app.all("/api/communication/notify-call", communicationHandler); // ✅ naya
-
 // ── Favourites ────────────────────────────────────────────────
 app.all("/api/favourites",        favouritesHandler);
 app.all("/api/favourites/add",    favouritesHandler);
@@ -95,10 +92,12 @@ app.all("/api/block",       blockRoutesHandler);
 app.all("/api/blocklist",   blockRoutesHandler);
 app.all("/api/blockcheck",  blockRoutesHandler);
 // ── Call Notification (FCM) ───────────────────────────────────
-app.all("/api/communication/notify-call",  communicationHandler); // ✅ pehle se hai
-app.all("/api/communication/pending-call", communicationHandler); // ✅ YEH ADD KARO
-app.all("/api/communication/call-status",        communicationHandler); // ✅ YEH BHI ADD KARO
-app.all("/api/communication/call-status-check",  communicationHandler); // ✅ caller polling
+// ✅ FIX: pehle /api/communication/notify-call DO baar register tha
+// (line 79 aur line 98) — duplicate. Ek baar register karo.
+app.all("/api/communication/notify-call",        communicationHandler);
+app.all("/api/communication/pending-call",       communicationHandler);
+app.all("/api/communication/call-status",        communicationHandler);
+app.all("/api/communication/call-status-check",  communicationHandler);
 
 // Routes section mein add karo
 app.all("/api/profile",        profileHandler);
